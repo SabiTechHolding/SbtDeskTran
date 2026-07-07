@@ -2,29 +2,47 @@
 Reusable widget components for SbtDeskTran.
 """
 import tkinter as tk
-import re
+from tkinter import ttk
 from diff_engine import compute_line_diff, compute_inline_diff, get_diff_stats
 
 
-def themed_scrollbar(parent, theme: dict, orient: str = "vertical", **kwargs) -> tk.Scrollbar:
+def themed_scrollbar(parent, theme: dict, orient: str = "vertical", **kwargs) -> ttk.Scrollbar:
     """
-    Create a tk.Scrollbar with colours taken from *theme*.
-    tk.Scrollbar ignores ttk styles and option_add when placed inside
-    child frames, so we must set bg/troughcolor explicitly.
+    Create a ttk.Scrollbar styled to match the current theme.
+    Uses ttk so thumb/trough colors are respected on Windows.
     """
+    # Must use standard style names that map to existing ttk layouts
+    if orient == "vertical":
+        style_name = "Themed.Vertical.TScrollbar"
+        base = "Vertical.TScrollbar"
+    else:
+        style_name = "Themed.Horizontal.TScrollbar"
+        base = "Horizontal.TScrollbar"
+
     t = theme
-    return tk.Scrollbar(
-        parent,
-        orient=orient,
-        bg=t.get("scrollbar", "#383838"),
+    style = ttk.Style()
+    # Clone layout from base style then override colors
+    try:
+        layout = style.layout(base)
+        style.layout(style_name, layout)
+    except Exception:
+        pass  # layout already registered or not needed
+
+    style.configure(style_name,
         troughcolor=t.get("bg2", "#141414"),
-        activebackground=t.get("scrollbar_hover", "#484848"),
-        highlightthickness=0,
+        background=t.get("scrollbar", "#383838"),
+        arrowcolor=t.get("fg2", "#909090"),
+        borderwidth=0,
         bd=0,
         relief="flat",
-        width=14,
-        **kwargs,
     )
+    style.map(style_name,
+        background=[
+            ("active",  t.get("scrollbar_hover", "#484848")),
+            ("!active", t.get("scrollbar",       "#383838")),
+        ]
+    )
+    return ttk.Scrollbar(parent, orient=orient, style=style_name, **kwargs)
 
 
 def _cjk_font(base_font: tuple) -> tuple:
@@ -136,13 +154,15 @@ class DiffViewer(tk.Frame):
     Inspired by GitHub / VSCode / Beyond Compare diff UI.
     """
 
-    def __init__(self, parent, theme, **kwargs):
+    def __init__(self, parent, theme, word_wrap: bool = False, **kwargs):
         super().__init__(parent, **kwargs)
         self.theme = theme
+        self._word_wrap = word_wrap
         self._build_ui()
 
     def _build_ui(self):
         t = self.theme
+        wrap_mode = "char" if self._word_wrap else "none"
         self.config(bg=t["bg2"])
 
         # ── Stats header — hidden (stats shown in app statusbar) ────────────
@@ -156,7 +176,6 @@ class DiffViewer(tk.Frame):
         # ── Side-by-side panes: pure grid, equal columns ─────────────────────
         self.pane_frame = tk.Frame(self, bg=t["bg2"])
         self.pane_frame.pack(fill="both", expand=True)
-        # col 0 = left pane, col 1 = separator (2px), col 2 = right pane
         self.pane_frame.columnconfigure(0, weight=1, uniform="half")
         self.pane_frame.columnconfigure(1, weight=0, minsize=2)
         self.pane_frame.columnconfigure(2, weight=1, uniform="half")
@@ -176,7 +195,7 @@ class DiffViewer(tk.Frame):
 
         self.left_text = tk.Text(self.left_frame,
             bg=t["diff_equal_bg"], fg=t["diff_equal_fg"],
-            font=_cjk_font(t["font_mono"]), wrap="none",
+            font=_cjk_font(t["font_mono"]), wrap=wrap_mode,
             relief="flat", bd=0, state="disabled",
             selectbackground=t["selection"], cursor="arrow")
         self.left_scroll_y = themed_scrollbar(self.left_frame, t,
@@ -184,6 +203,14 @@ class DiffViewer(tk.Frame):
         self.left_text.config(yscrollcommand=self._left_yscroll)
         self.left_text.grid(row=1, column=0, sticky="nsew")
         self.left_scroll_y.grid(row=1, column=1, sticky="ns")
+
+        # Horizontal scrollbar for left — only when wrap=off
+        if not self._word_wrap:
+            self.left_scroll_x = themed_scrollbar(self.left_frame, t,
+                orient="horizontal", command=self._sync_scroll_x_left)
+            self.left_text.config(xscrollcommand=self._left_xscroll)
+            self.left_scroll_x.grid(row=2, column=0, sticky="ew")
+            self.left_frame.rowconfigure(2, weight=0)
 
         # Separator
         tk.Frame(self.pane_frame, bg=t["border"], width=2).grid(
@@ -203,7 +230,7 @@ class DiffViewer(tk.Frame):
 
         self.right_text = tk.Text(self.right_frame,
             bg=t["diff_equal_bg"], fg=t["diff_equal_fg"],
-            font=_cjk_font(t["font_mono"]), wrap="none",
+            font=_cjk_font(t["font_mono"]), wrap=wrap_mode,
             relief="flat", bd=0, state="disabled",
             selectbackground=t["selection"], cursor="arrow")
         self.right_scroll_y = themed_scrollbar(self.right_frame, t,
@@ -211,6 +238,13 @@ class DiffViewer(tk.Frame):
         self.right_text.config(yscrollcommand=self._right_yscroll)
         self.right_text.grid(row=1, column=0, sticky="nsew")
         self.right_scroll_y.grid(row=1, column=1, sticky="ns")
+
+        if not self._word_wrap:
+            self.right_scroll_x = themed_scrollbar(self.right_frame, t,
+                orient="horizontal", command=self._sync_scroll_x_right)
+            self.right_text.config(xscrollcommand=self._right_xscroll)
+            self.right_scroll_x.grid(row=2, column=0, sticky="ew")
+            self.right_frame.rowconfigure(2, weight=0)
 
         self._configure_tags(self.left_text)
         self._configure_tags(self.right_text)
@@ -261,6 +295,24 @@ class DiffViewer(tk.Frame):
     def _sync_scroll_y(self, *args):
         self.left_text.yview(*args)
         self.right_text.yview(*args)
+
+    def _left_xscroll(self, *args):
+        try:
+            self.left_scroll_x.set(*args)
+        except Exception:
+            pass
+
+    def _right_xscroll(self, *args):
+        try:
+            self.right_scroll_x.set(*args)
+        except Exception:
+            pass
+
+    def _sync_scroll_x_left(self, *args):
+        self.left_text.xview(*args)
+
+    def _sync_scroll_x_right(self, *args):
+        self.right_text.xview(*args)
 
     def render(self, old_text: str, new_text: str):
         """Render a diff between old_text and new_text."""

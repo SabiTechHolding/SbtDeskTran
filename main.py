@@ -76,6 +76,10 @@ def save_settings(settings: dict):
 def main():
     settings = load_settings()
 
+    from logger import log
+    log.info("SbtDeskTran starting")
+    log.debug(f"Settings: {settings}")
+
     from version import __version__
     root = tk.Tk()
     root.title(f"SbtDeskTran v{__version__}")

@@ -11,6 +11,7 @@ from translator_engine import (
 )
 from theme import THEMES
 from widgets import FlatButton, DiffViewer, themed_scrollbar
+from logger import log
 
 LANG_NAMES      = list(LANGUAGES.keys())
 # Resolve data directory: exe folder when frozen, script folder otherwise
@@ -83,6 +84,7 @@ class SbtDeskTranApp:
         # diff tab preserved text
         self._diff_left_cache  = ""
         self._diff_right_cache = ""
+        self._note_body_cache  = ""
 
         self._save_timer = None   # debounce handle for _save_settings
 
@@ -173,7 +175,7 @@ class SbtDeskTranApp:
         self._switch_tab(self._tab, force=True)
 
     def _apply_bar_visibility(self):
-        """Show/hide bars using grid rows."""
+        """Show/hide bars using grid rows. Statusbar always visible."""
         if self._compact:
             self.topbar.grid_remove()
             self.langbar.grid_remove()
@@ -186,10 +188,8 @@ class SbtDeskTranApp:
                 self.langbar.grid(row=1, column=0, sticky="ew")
             else:
                 self.langbar.grid_remove()
-            if self._tab == "diff":
-                self.statusbar.grid(row=3, column=0, sticky="ew")
-            else:
-                self.statusbar.grid_remove()
+            # Statusbar always shown (not compact)
+            self.statusbar.grid(row=3, column=0, sticky="ew")
 
     # ──────────────────────────────────────────
     # Top bar
@@ -354,11 +354,16 @@ class SbtDeskTranApp:
     def _switch_tab(self, tab_id: str, force: bool = False):
         if tab_id == self._tab and not force:
             return
-        # Save diff text before leaving diff tab
+        # Save text from current tab before switching
         if self._tab == "diff" and not force:
             try:
                 self._diff_left_cache  = self.diff_left.get("1.0","end-1c")
                 self._diff_right_cache = self.diff_right.get("1.0","end-1c")
+            except Exception:
+                pass
+        if self._tab == "note" and not force:
+            try:
+                self._note_body_cache = self.note_body.get("1.0","end-1c")
             except Exception:
                 pass
 
@@ -370,16 +375,13 @@ class SbtDeskTranApp:
         try: self._build_topbar()
         except Exception: pass
 
-        # Show/hide langbar and statusbar per tab
+        # Show/hide langbar; statusbar always shown
         if not self._compact:
             if tab_id == "tran":
                 self.langbar.grid(row=1, column=0, sticky="ew")
             else:
                 self.langbar.grid_remove()
-            if tab_id == "diff":
-                self.statusbar.grid(row=3, column=0, sticky="ew")
-            else:
-                self.statusbar.grid_remove()
+            self.statusbar.grid(row=3, column=0, sticky="ew")
 
         # Rebuild content area
         for w in self.content.winfo_children():
@@ -457,7 +459,8 @@ class SbtDeskTranApp:
         self.dest_text = tk.Text(dtf, bg=t["bg"], fg=t["accent2"],
             font=("Consolas", self._font_size), wrap=wrap_mode,
             relief="flat", bd=0, padx=8, pady=6,
-            insertbackground=t["fg"], selectbackground=t["selection"])
+            insertbackground=t["fg"], selectbackground=t["selection"],
+            state="disabled", cursor="arrow")  # readonly
         ds = themed_scrollbar(dtf, t, command=self.dest_text.yview)
         self.dest_text.config(yscrollcommand=ds.set)
         ds.pack(side="right", fill="y")
@@ -468,7 +471,9 @@ class SbtDeskTranApp:
         self.dest_text.pack(fill="both", expand=True)
         self.dest_text.bind("<Control-MouseWheel>", self._on_zoom)
         if self._dst_cache:
+            self.dest_text.config(state="normal")
             self.dest_text.insert("1.0", self._dst_cache)
+            self.dest_text.config(state="disabled")
 
     # ──────────────────────────────────────────
     # TAB: Diff (two independent free-text boxes)
@@ -521,9 +526,10 @@ class SbtDeskTranApp:
             txt.config(yscrollcommand=sc.set)
             sc.pack(side="right", fill="y")
             if not self._word_wrap:
+                # Pack horizontal scrollbar BEFORE txt so it's not pushed out
                 sc_x = themed_scrollbar(fr, t, orient="horizontal", command=txt.xview)
                 txt.config(xscrollcommand=sc_x.set)
-                sc_x.pack(side="bottom", fill="x")
+                sc_x.pack(side="bottom", fill="x", before=tf)
             txt.pack(fill="both", expand=True)
             txt.bind("<Control-MouseWheel>", self._on_zoom)
             if cache:
@@ -539,7 +545,8 @@ class SbtDeskTranApp:
         self.diff_right.bind("<KeyRelease>", _key_handler)
 
         # Diff viewer
-        self.diff_viewer = DiffViewer(self.content, theme=t, bg=t["bg2"])
+        self.diff_viewer = DiffViewer(self.content, theme=t,
+            word_wrap=self._word_wrap, bg=t["bg2"])
         self.diff_viewer.pack(fill="both", expand=True)
 
     def _run_diff(self):
@@ -564,44 +571,19 @@ class SbtDeskTranApp:
             bg=t["border"], sashwidth=5, sashrelief="flat", bd=0, handlesize=0)
         outer.pack(fill="both", expand=True)
 
-        # Sidebar — resizable, width saved in settings
-        saved_sb_w = self.settings.get("note_sidebar_width", 180)
-        sb = tk.Frame(outer, bg=t["bg2"])
-        outer.add(sb, width=saved_sb_w, minsize=80, stretch="never")
-
-        # Track sidebar width changes
-        def _on_sash(_=None):
-            try:
-                new_w = outer.sash_coord(0)[0]
-                self.settings["note_sidebar_width"] = new_w
-                self._save_settings_debounced(delay_ms=500)
-            except Exception:
-                pass
-        outer.bind("<ButtonRelease-1>", _on_sash)
-
-        sh = tk.Frame(sb, bg=t["bg3"], height=28); sh.pack(fill="x"); sh.pack_propagate(False)
-        tk.Label(sh, text="  Notes", bg=t["bg3"], fg=t["fg2"],
-                 font=t["font_ui_bold"], anchor="w").pack(side="left", fill="y")
-        FlatButton(sh, text="+ New", theme=t, command=self._note_new).pack(side="right", padx=4)
-        lf = tk.Frame(sb, bg=t["bg2"]); lf.pack(fill="both", expand=True)
-        self.note_list = tk.Listbox(lf, bg=t["bg2"], fg=t["fg"], font=t["font_ui"],
-            selectbackground=t["accent"], selectforeground=t["bg"],
-            relief="flat", bd=0, activestyle="none", highlightthickness=0)
-        nsc = themed_scrollbar(lf, t, command=self.note_list.yview)
-        self.note_list.config(yscrollcommand=nsc.set)
-        nsc.pack(side="right", fill="y"); self.note_list.pack(fill="both", expand=True)
-        self.note_list.bind("<<ListboxSelect>>", self._note_select)
-
-        # Editor
+        # Editor — bên trái, chiếm phần lớn
         ef = tk.Frame(outer, bg=t["bg"])
         outer.add(ef, stretch="always", minsize=200)
+
+        # Editor header: title entry + Save
         eh = tk.Frame(ef, bg=t["bg3"], height=28); eh.pack(fill="x"); eh.pack_propagate(False)
         self.note_title = tk.StringVar()
         tk.Entry(eh, textvariable=self.note_title, bg=t["bg3"], fg=t["fg"],
             font=t["font_ui_bold"], relief="flat", bd=0,
             insertbackground=t["fg"]).pack(side="left", fill="both", expand=True, padx=8, pady=4)
         FlatButton(eh, text="💾 Save", theme=t, command=self._note_save).pack(side="right", padx=4)
-        FlatButton(eh, text="🗑 Del",  theme=t, command=self._note_del).pack(side="right", padx=2)
+
+        # Editor body
         etf = tk.Frame(ef, bg=t["bg"]); etf.pack(fill="both", expand=True)
         wrap_mode = "word" if self._word_wrap else "none"
         self.note_body = tk.Text(etf, bg=t["bg"], fg=t["fg"],
@@ -620,12 +602,49 @@ class SbtDeskTranApp:
         self.note_body.bind("<Control-MouseWheel>", self._on_zoom)
         self.note_body.bind("<KeyRelease>",          self._note_debounce)
 
+        # Sidebar — bên phải, width vừa đủ 3 nút
+        saved_sb_w = self.settings.get("note_sidebar_width", 130)
+        sb = tk.Frame(outer, bg=t["bg2"])
+        outer.add(sb, width=saved_sb_w, minsize=100, stretch="never")
+
+        def _on_sash(_=None):
+            try:
+                coords = outer.sash_coord(0)
+                # sash 0 is between ef and sb — width of sb = total - sash_x
+                total = outer.winfo_width()
+                self.settings["note_sidebar_width"] = max(100, total - coords[0])
+            except Exception:
+                pass
+        outer.bind("<ButtonRelease-1>", _on_sash)
+
+        # Sidebar header: 3 buttons
+        sh = tk.Frame(sb, bg=t["bg3"], height=28); sh.pack(fill="x"); sh.pack_propagate(False)
+        FlatButton(sh, text="＋", theme=t, command=self._note_new).pack(side="left", padx=2)
+        FlatButton(sh, text="💾", theme=t, command=self._note_save).pack(side="left", padx=2)
+        FlatButton(sh, text="🗑", theme=t, command=self._note_del).pack(side="left", padx=2)
+
+        # Note list
+        lf = tk.Frame(sb, bg=t["bg2"]); lf.pack(fill="both", expand=True)
+        self.note_list = tk.Listbox(lf, bg=t["bg2"], fg=t["fg"], font=t["font_small"],
+            selectbackground=t["accent"], selectforeground=t["bg"],
+            relief="flat", bd=0, activestyle="none", highlightthickness=0)
+        nsc = themed_scrollbar(lf, t, command=self.note_list.yview)
+        self.note_list.config(yscrollcommand=nsc.set)
+        nsc.pack(side="right", fill="y"); self.note_list.pack(fill="both", expand=True)
+        self.note_list.bind("<<ListboxSelect>>", self._note_select)
+
         self._note_refresh()
         self._note_idx = getattr(self, "_note_idx", 0)
+        _restore_body = getattr(self, "_note_body_cache", "")
         if self._notes:
             idx = max(0, min(self._note_idx, len(self._notes)-1))
             self.note_list.selection_set(idx)
             self._note_load(idx)
+        # After note_load, restore unsaved body if toggling wrap
+        if _restore_body:
+            self.note_body.delete("1.0", "end")
+            self.note_body.insert("1.0", _restore_body)
+            self._note_body_cache = ""
 
     def _load_notes(self):
         if not os.path.exists(NOTES_FILE):
@@ -767,6 +786,7 @@ class SbtDeskTranApp:
             self.dest_text.config(state="normal")
             self.dest_text.delete("1.0","end")
             self.dest_text.insert("1.0", text)
+            self.dest_text.config(state="disabled")
         except Exception: pass
 
     def _copy_text(self, widget):
@@ -861,11 +881,31 @@ class SbtDeskTranApp:
         self.save_fn(self.settings)
 
     def _toggle_wrap(self):
+        # 1. Save all current text before rebuilding
+        try:
+            self._src_cache = self.src_text.get("1.0", "end-1c")
+        except Exception:
+            pass
+        try:
+            self.dest_text.config(state="normal")
+            self._dst_cache = self.dest_text.get("1.0", "end-1c")
+            self.dest_text.config(state="disabled")
+        except Exception:
+            pass
+        try:
+            self._diff_left_cache  = self.diff_left.get("1.0", "end-1c")
+            self._diff_right_cache = self.diff_right.get("1.0", "end-1c")
+        except Exception:
+            pass
+        try:
+            self._note_body_cache = self.note_body.get("1.0", "end-1c")
+        except Exception:
+            pass
+
         self._word_wrap = not self._word_wrap
         self.settings["word_wrap"] = self._word_wrap
         try: self.wrap_btn.set_toggled(self._word_wrap)
         except Exception: pass
-        # Rebuild current tab to apply new wrap mode
         self._switch_tab(self._tab, force=True)
         self.save_fn(self.settings)
 
@@ -894,28 +934,6 @@ class SbtDeskTranApp:
         self.root.option_add("*TCombobox*Listbox.selectBackground",  t["accent"])
         self.root.option_add("*TCombobox*Listbox.selectForeground",  t["bg"])
         self.root.option_add("*TCombobox*Listbox.font",              t["font_ui"])
-
-        # Scrollbar — theme-aware, flat style
-        style.configure("Vertical.TScrollbar",
-            troughcolor=t["bg2"], background=t["scrollbar"],
-            bordercolor=t["bg2"], arrowcolor=t["fg2"],
-            relief="flat", borderwidth=0, width=10)
-        style.map("Vertical.TScrollbar",
-            background=[("active", t["scrollbar_hover"]), ("!active", t["scrollbar"])])
-        style.configure("Horizontal.TScrollbar",
-            troughcolor=t["bg2"], background=t["scrollbar"],
-            bordercolor=t["bg2"], arrowcolor=t["fg2"],
-            relief="flat", borderwidth=0, width=10)
-        style.map("Horizontal.TScrollbar",
-            background=[("active", t["scrollbar_hover"]), ("!active", t["scrollbar"])])
-
-        # Apply scrollbar style to all tk.Scrollbar via option_add
-        self.root.option_add("*Scrollbar.troughColor",  t["bg2"])
-        self.root.option_add("*Scrollbar.background",   t["scrollbar"])
-        self.root.option_add("*Scrollbar.activeBackground", t["scrollbar_hover"])
-        self.root.option_add("*Scrollbar.borderWidth",  0)
-        self.root.option_add("*Scrollbar.relief",       "flat")
-        self.root.option_add("*Scrollbar.width",        10)
 
     # ──────────────────────────────────────────
     # Window events
