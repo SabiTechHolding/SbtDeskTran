@@ -4,7 +4,7 @@ Layout: TopBar (tabs left, modes right) -> LangBar (tran only) -> Content -> Sta
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
-import threading, json, os, sys
+import threading, json, os, sys, ctypes
 
 from translator_engine import (
     LANGUAGES, LANG_CODE_TO_NAME, get_engine, ENGINES, TranslationError
@@ -19,6 +19,13 @@ _APP_DIR        = os.path.dirname(os.path.abspath(sys.executable if getattr(sys,
 NOTES_FILE      = os.path.join(_APP_DIR, "notes.json")
 _DEFAULT_ENGINE = list(ENGINES.keys())[0]
 FONT_MIN, FONT_MAX = 7, 28
+WINDOW_EFFECTS = [
+    ("solid", "◎ Solid", 1.00, False),
+    ("dim", "◑ Dim", 0.88, False),
+    ("ghost", "◌ Ghost", 0.72, False),
+    ("clear", "□ Clear", 0.45, False),
+    ("blur", "◍ Blur", 0.92, True),
+]
 
 
 # ─────────────────────────────────────────────
@@ -74,6 +81,9 @@ class SbtDeskTranApp:
         self._tab       = settings.get("active_tab", "tran")
         self._font_size = settings.get("font_size", 10)
         self._word_wrap = settings.get("word_wrap", True)
+        self._window_effect = settings.get("window_effect", settings.get("opacity_mode", "solid"))
+        if self._window_effect not in [effect[0] for effect in WINDOW_EFFECTS]:
+            self._window_effect = "solid"
         self._timer     = None
         self._busy      = False
         self._notes     = self._load_notes()
@@ -92,6 +102,7 @@ class SbtDeskTranApp:
         self.root.configure(bg=self.theme["bg"])
 
         self._setup_window()
+        self._apply_window_effect()
         self._apply_ttk_style()
         self._build_ui()
 
@@ -253,6 +264,13 @@ class SbtDeskTranApp:
             command=self._toggle_wrap, toggle=True)
         self.wrap_btn.set_toggled(self._word_wrap)
         self.wrap_btn.pack(side="right", padx=2)
+
+        # Window opacity / blur toggle
+        effect_labels = {key: label for key, label, _, _ in WINDOW_EFFECTS}
+        cur_label = effect_labels.get(self._window_effect, effect_labels["solid"])
+        self.opacity_btn = FlatButton(right, text=cur_label, theme=t,
+            command=self._cycle_window_effect)
+        self.opacity_btn.pack(side="right", padx=2)
 
         tk.Frame(self.topbar, bg=t["border"], height=2).pack(side="bottom", fill="x")
 
@@ -912,6 +930,71 @@ class SbtDeskTranApp:
     # ──────────────────────────────────────────
     # TTK styling
     # ──────────────────────────────────────────
+    def _cycle_window_effect(self):
+        keys = [key for key, _, _, _ in WINDOW_EFFECTS]
+        try:
+            idx = keys.index(self._window_effect)
+        except ValueError:
+            idx = 0
+        self._window_effect = keys[(idx + 1) % len(keys)]
+        self.settings["window_effect"] = self._window_effect
+        self._apply_window_effect()
+
+        label = next((label for key, label, _, _ in WINDOW_EFFECTS
+                      if key == self._window_effect), "◎ Solid")
+        try:
+            self.opacity_btn.config(text=label)
+        except Exception:
+            pass
+        self._set_status(f"Window effect: {label.split(' ', 1)[-1]}")
+        self.save_fn(self.settings)
+
+    def _apply_window_effect(self):
+        effect = next((item for item in WINDOW_EFFECTS
+                       if item[0] == self._window_effect), WINDOW_EFFECTS[0])
+        _, _, alpha, use_blur = effect
+        try:
+            self.root.attributes("-alpha", alpha)
+        except Exception:
+            pass
+        self._set_windows_blur(use_blur)
+
+    def _set_windows_blur(self, enabled: bool):
+        if sys.platform != "win32":
+            return False
+        try:
+            hwnd = self.root.winfo_id()
+
+            class ACCENTPOLICY(ctypes.Structure):
+                _fields_ = [
+                    ("AccentState", ctypes.c_int),
+                    ("AccentFlags", ctypes.c_int),
+                    ("GradientColor", ctypes.c_int),
+                    ("AnimationId", ctypes.c_int),
+                ]
+
+            class WINDOWCOMPOSITIONATTRIBDATA(ctypes.Structure):
+                _fields_ = [
+                    ("Attribute", ctypes.c_int),
+                    ("Data", ctypes.c_void_p),
+                    ("SizeOfData", ctypes.c_size_t),
+                ]
+
+            accent = ACCENTPOLICY()
+            accent.AccentState = 3 if enabled else 0
+            accent.AccentFlags = 2 if enabled else 0
+            accent.GradientColor = 0xCC000000 if enabled else 0
+            data = WINDOWCOMPOSITIONATTRIBDATA()
+            data.Attribute = 19
+            data.Data = ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p)
+            data.SizeOfData = ctypes.sizeof(accent)
+            fn = ctypes.windll.user32.SetWindowCompositionAttribute
+            fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(WINDOWCOMPOSITIONATTRIBDATA)]
+            fn.restype = ctypes.c_int
+            return bool(fn(ctypes.c_void_p(hwnd), ctypes.byref(data)))
+        except Exception:
+            return False
+
     def _apply_ttk_style(self):
         t = self.theme
         style = ttk.Style()
