@@ -1,0 +1,8 @@
+__pycache__/
+build/
+dist/
+.exe
+.spec
+notes.json
+settings.json
+SbtDeskTran.spec
