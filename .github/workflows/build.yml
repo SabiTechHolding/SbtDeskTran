@@ -26,6 +26,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
 
+      - name: Generate version
+        id: version
+        run: |
+          $date = Get-Date -Format "yyyy.MM.dd"
+          $build = "${{ github.run_number }}"
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $version = "$date.$build"
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "sha=$sha" >> $env:GITHUB_OUTPUT
+          Set-Content -Path version.py -Value "__version__ = '$version'"
+
       - name: Build EXE with PyInstaller
         run: |
           python -m PyInstaller `
@@ -44,26 +55,27 @@ jobs:
             --noconfirm `
             main.py
 
-      - name: Get short SHA
-        id: sha
-        run: echo "short=$("${{ github.sha }}".Substring(0,7))" >> $env:GITHUB_OUTPUT
+      - name: Package EXE into ZIP
+        run: |
+          Compress-Archive -Path dist\SbtDeskTran.exe `
+            -DestinationPath dist\SbtDeskTran-${{ steps.version.outputs.version }}.zip
 
-      - name: Upload EXE as artifact
+      - name: Upload ZIP as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SbtDeskTran-${{ steps.sha.outputs.short }}
-          path: dist/SbtDeskTran.exe
+          name: SbtDeskTran-${{ steps.version.outputs.version }}
+          path: dist/SbtDeskTran-${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ steps.sha.outputs.short }}
-          name: "Build ${{ steps.sha.outputs.short }}"
+          tag_name: v${{ steps.version.outputs.version }}
+          name: "v${{ steps.version.outputs.version }}"
           body: |
-            Auto-build from commit `${{ github.sha }}`
-
+            **Version:** `${{ steps.version.outputs.version }}`
+            **Commit:** `${{ steps.version.outputs.sha }}`
             **Branch:** `${{ github.ref_name }}`
             **Triggered by:** ${{ github.actor }}
-          files: dist/SbtDeskTran.exe
+          files: dist/SbtDeskTran-${{ steps.version.outputs.version }}.zip
           prerelease: false
