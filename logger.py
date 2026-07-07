@@ -1,16 +1,16 @@
 """
 SbtDeskTran - Application Logger
-Writes to app.log in the app directory.
+Writes to app.log in the first writable app data directory.
 Usage:
     from logger import log
     log.info("message")
     log.error("error", exc_info=True)
 """
 import logging
-import os
 import sys
+from app_paths import data_file
 
-_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.log")
+_LOG_FILE = data_file("app.log")
 
 def _setup() -> logging.Logger:
     logger = logging.getLogger("SbtDeskTran")

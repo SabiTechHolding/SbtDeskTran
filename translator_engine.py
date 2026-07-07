@@ -96,12 +96,12 @@ def _build_opener(proxy: dict = None, ssl_verify: bool = True) -> urllib.request
     """Build urllib opener with optional proxy and SSL settings."""
     handlers = []
 
-    # Proxy handler
-    if proxy:
-        handlers.append(urllib.request.ProxyHandler(proxy))
-    else:
-        # Use system proxy (default urllib behavior on Windows reads IE settings)
+    # proxy=None uses urllib's default system/env proxy lookup.
+    # proxy={} explicitly disables proxies for a real direct attempt.
+    if proxy is None:
         handlers.append(urllib.request.ProxyHandler())
+    else:
+        handlers.append(urllib.request.ProxyHandler(proxy))
 
     # SSL context
     if not ssl_verify:
@@ -112,6 +112,30 @@ def _build_opener(proxy: dict = None, ssl_verify: bool = True) -> urllib.request
         log.debug("SSL verification disabled for this attempt")
 
     return urllib.request.build_opener(*handlers)
+
+
+def _proxy_label(proxy) -> str:
+    if proxy is None:
+        return "system-proxy"
+    if proxy:
+        return "configured-proxy"
+    return "direct"
+
+
+def _network_hint(error) -> str:
+    reason = getattr(error, "reason", error)
+    winerror = getattr(reason, "winerror", None) or getattr(error, "winerror", None)
+    if winerror == 10013:
+        return (
+            "Socket permission denied (WinError 10013). Windows Firewall, "
+            "endpoint security, AppLocker, or policy for apps launched from a "
+            "network share is blocking outbound HTTPS."
+        )
+    if isinstance(reason, socket.gaierror):
+        return "DNS lookup failed. Check DNS, VPN, proxy, or remote-session network settings."
+    if isinstance(reason, ssl.SSLError):
+        return "SSL certificate/inspection error. Check corporate proxy or certificate trust."
+    return str(reason)
 
 
 def _do_request(full_url: str, timeout: int, opener) -> bytes:
@@ -163,15 +187,16 @@ class GoogleTranslateEngine:
 
     def _make_strategies(self, query: str) -> list:
         """Return list of (url, proxy, ssl_verify, timeout) tuples."""
-        sys_proxy = _get_system_proxy()
+        configured_proxy = _get_system_proxy()
+        system_proxy = configured_proxy or None
         strategies = []
         for endpoint in self._ENDPOINTS:
             url = f"{endpoint}?{query}"
             strategies += [
-                (url, sys_proxy, True,  12),   # system proxy, SSL on
-                (url, sys_proxy, False, 12),   # system proxy, SSL off (MITM bypass)
-                (url, {},        True,  15),   # direct, SSL on
-                (url, {},        False, 15),   # direct, SSL off
+                (url, system_proxy, True,  12),   # system/configured proxy, SSL on
+                (url, system_proxy, False, 12),   # system/configured proxy, SSL off
+                (url, {},           True,  15),   # forced direct, SSL on
+                (url, {},           False, 15),   # forced direct, SSL off
             ]
         return strategies
 
@@ -195,7 +220,7 @@ class GoogleTranslateEngine:
         if self._working_strategy >= 0:
             idx = self._working_strategy
             url, proxy, ssl_verify, timeout = strategies[idx]
-            proxy_label = "sys-proxy" if proxy else "direct"
+            proxy_label = _proxy_label(proxy)
             ssl_label = "ssl-on" if ssl_verify else "ssl-off"
             log.debug(f"Using cached strategy {idx} ({proxy_label}, {ssl_label})")
             try:
@@ -222,7 +247,7 @@ class GoogleTranslateEngine:
         # Full retry — try all strategies in order
         last_error = None
         for i, (url, proxy, ssl_verify, timeout) in enumerate(strategies):
-            proxy_label = "sys-proxy" if proxy else "direct"
+            proxy_label = _proxy_label(proxy)
             ssl_label = "ssl-on" if ssl_verify else "ssl-off"
             log.debug(f"Attempt {i+1}/{len(strategies)}: {proxy_label} {ssl_label}")
             try:
@@ -251,11 +276,11 @@ class GoogleTranslateEngine:
         # All strategies failed
         log.error(f"All {len(strategies)} translation attempts failed. Last: {last_error}")
         if isinstance(last_error, (socket.timeout, TimeoutError)):
-            hint = "Network timeout — check if translate.googleapis.com is accessible"
+            hint = "Network timeout - check if translate.googleapis.com is accessible"
         elif isinstance(last_error, urllib.error.URLError):
-            hint = f"Network error — {last_error.reason}"
+            hint = f"Network error - {_network_hint(last_error)}"
         else:
-            hint = str(last_error)
+            hint = _network_hint(last_error)
         raise TranslationError(f"Translation failed: {hint}")
 
 

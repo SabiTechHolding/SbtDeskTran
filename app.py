@@ -12,16 +12,17 @@ from translator_engine import (
 from theme import THEMES
 from widgets import FlatButton, DiffViewer, themed_scrollbar
 from logger import log
+from app_paths import data_file, data_file_candidates
 
 LANG_NAMES      = list(LANGUAGES.keys())
-# Resolve data directory: exe folder when frozen, script folder otherwise
-_APP_DIR        = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
-NOTES_FILE      = os.path.join(_APP_DIR, "notes.json")
+NOTES_FILE      = data_file("notes.json")
 _DEFAULT_ENGINE = list(ENGINES.keys())[0]
 FONT_MIN, FONT_MAX = 7, 28
 WINDOW_EFFECTS = [
     ("solid", "◎ Solid", 1.00, False),
-    ("blur", "◍ Blur", 0.99, True),
+    ("blur", "◍ Blur", 0.98, True),
+    ("frosted", "◐ Frosted", 0.92, True),
+    ("transp", "○ Transparent", 0.85, False),
     ("dim", "◑ Dim", 0.88, False),
     ("ghost", "◌ Ghost", 0.80, False),
     ("clear", "□ Clear", 0.45, False),
@@ -668,19 +669,27 @@ class SbtDeskTranApp:
             self._note_body_cache = ""
 
     def _load_notes(self):
-        if not os.path.exists(NOTES_FILE):
-            # First run — create empty notes file
+        for path in data_file_candidates("notes.json"):
+            if not os.path.exists(path):
+                continue
             try:
-                with open(NOTES_FILE, "w", encoding="utf-8") as f:
-                    json.dump([], f)
+                with open(path, "r", encoding="utf-8") as f:
+                    notes = json.load(f)
+                if os.path.normcase(os.path.abspath(path)) != os.path.normcase(os.path.abspath(NOTES_FILE)):
+                    try:
+                        with open(NOTES_FILE, "w", encoding="utf-8") as f:
+                            json.dump(notes, f, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
+                return notes
             except Exception:
                 pass
-            return []
         try:
-            with open(NOTES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(NOTES_FILE, "w", encoding="utf-8") as f:
+                json.dump([], f)
         except Exception:
-            return []
+            pass
+        return []
 
     def _save_notes(self):
         try:

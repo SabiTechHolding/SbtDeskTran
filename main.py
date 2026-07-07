@@ -6,24 +6,15 @@ No extra dependencies required (uses Python standard library only).
 Usage:
     python main.py
 """
-import tkinter as tk
-import sys
-import os
 import json
+import os
+import sys
+import tkinter as tk
 
-# ──────────────────────────────────────────────
-# Resolve the directory where user-data files live.
-# - When frozen by PyInstaller (--onefile):  directory of the .exe
-# - When run as plain Python:                directory of this .py file
-# ──────────────────────────────────────────────
-def _app_dir() -> str:
-    if getattr(sys, "frozen", False):
-        # Running inside a PyInstaller bundle → use exe location
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
+from app_paths import data_file, data_file_candidates
 
-APP_DIR       = _app_dir()
-SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
+
+SETTINGS_FILE = data_file("settings.json")
 
 DEFAULT_SETTINGS = {
     "theme": "dark",
@@ -48,19 +39,23 @@ DEFAULT_SETTINGS = {
 
 
 def load_settings() -> dict:
-    if not os.path.exists(SETTINGS_FILE):
-        # First run — create file with defaults right away
-        s = DEFAULT_SETTINGS.copy()
-        save_settings(s)
-        return s
-    try:
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        s = DEFAULT_SETTINGS.copy()
-        s.update(data)
-        return s
-    except Exception:
-        return DEFAULT_SETTINGS.copy()
+    for path in data_file_candidates("settings.json"):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            settings = DEFAULT_SETTINGS.copy()
+            settings.update(data)
+            if os.path.normcase(os.path.abspath(path)) != os.path.normcase(os.path.abspath(SETTINGS_FILE)):
+                save_settings(settings)
+            return settings
+        except Exception:
+            pass
+
+    settings = DEFAULT_SETTINGS.copy()
+    save_settings(settings)
+    return settings
 
 
 def save_settings(settings: dict):
@@ -71,15 +66,13 @@ def save_settings(settings: dict):
         pass
 
 
-# ──────────────────────────────────────────────
-# Entry point
-# ──────────────────────────────────────────────
 def main():
     settings = load_settings()
 
     from logger import log
     log.info("SbtDeskTran starting")
     log.debug(f"Settings: {settings}")
+    log.debug(f"Settings file: {SETTINGS_FILE}")
 
     from version import __version__
     root = tk.Tk()
@@ -97,7 +90,7 @@ def main():
     root.focus_force()
 
     from app import SbtDeskTranApp
-    app = SbtDeskTranApp(root, settings, save_settings)
+    SbtDeskTranApp(root, settings, save_settings)
 
     root.mainloop()
 
