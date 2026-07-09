@@ -480,7 +480,7 @@ class SbtDeskTranApp:
         pw.wait_window(win)
         return result[0]
 
-def _install_update(self, info, parent=None):
+    def _install_update(self, info, parent=None):
         def worker():
             try:
                 import updater
