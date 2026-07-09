@@ -4,9 +4,9 @@ Keep release/change details here instead of putting them in the release body.
 
 Last released: v2026.07.09.26
 
-----------------------------------------------------------------------
+-----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI
-----------------------------------------------------------------------
+-----------------------------------------------------------------
 
 App:
 - Tab switching now keeps each tab UI alive and only hides/shows cached
@@ -46,13 +46,22 @@ Auto Update:
 - Restart now launches the update helper detached from the app process and
   exits the old app process immediately after saving state, preventing the old
   process from staying grouped with the restarted app in Task Manager.
+- The update helper now starts the new exe from the running app folder after
+  copy/cleanup/delay, using pushd so UNC/network app folders get a valid
+  working directory before launch.
+- If the old app process does not exit after Restart, the helper force-stops
+  that PID before replacing the exe.
+- Replaced netsh/PowerShell network fallback with in-process WinINet proxy/PAC
+  fallback, so startup checks, manual Check Update, translation, and update
+  downloads can still use Windows proxy/PAC without creating a child process
+  that Task Manager groups as SbtDeskTran (2).
 - The app window icon is applied from the bundled icon resource, and the CI
   PyInstaller build now bundles icon.ico so the title bar can use the same
   icon as the executable.
 
-----------------------------------------------------------------------
+-----------------------------------------------------------------
 v2026.07.08 — Editable diff, auto-save notes, large translate chunks, CI pipeline
-----------------------------------------------------------------------
+-----------------------------------------------------------------
 
 New features:
 - VirtualDiffEditor: fully editable side-by-side diff view with

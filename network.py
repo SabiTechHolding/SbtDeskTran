@@ -1,16 +1,15 @@
 """
 Shared network utilities: proxy detection, SSL configuration, HTTP requests,
-PowerShell fallback, and error diagnostics for corporate/VPN/proxy environments.
+WinINet fallback, and error diagnostics for corporate/VPN/proxy environments.
 """
-import json
-import base64
+import ctypes
 import socket
 import ssl
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from ctypes import wintypes
 
 try:
     from logger import log
@@ -58,27 +57,6 @@ def get_system_proxy() -> dict:
     except Exception as e:
         log.debug(f"No system proxy or registry read failed: {e}")
     return proxy
-
-
-def log_winhttp_proxy_once():
-    if getattr(log_winhttp_proxy_once, "_done", False) or sys.platform != "win32":
-        return
-    log_winhttp_proxy_once._done = True
-    try:
-        proc = subprocess.run(
-            ["netsh", "winhttp", "show", "proxy"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        text = (proc.stdout or proc.stderr).decode("utf-8", errors="replace").strip()
-        if text:
-            log.debug("WinHTTP proxy: " + " | ".join(
-                line.strip() for line in text.splitlines() if line.strip()
-            ))
-    except Exception as e:
-        log.debug(f"WinHTTP proxy check failed: {e}")
 
 
 # ── Opener builder ──────────────────────────────────────────────
@@ -129,83 +107,103 @@ def do_request(url: str, timeout: int, opener: urllib.request.OpenerDirector,
         return resp.read()
 
 
-def do_request_powershell(url: str, timeout: int,
-                          user_agent: str = DEFAULT_USER_AGENT) -> bytes:
-    """Use Windows PowerShell/.NET networking as a corporate proxy/PAC fallback."""
+def do_request_wininet(url: str, timeout: int,
+                       user_agent: str = DEFAULT_USER_AGENT) -> bytes:
+    """Use WinINet in-process as the Windows proxy/PAC fallback."""
     if sys.platform != "win32":
-        raise OSError("PowerShell fallback is only available on Windows")
+        raise OSError("WinINet fallback is only available on Windows")
 
-    script = r"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-$payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-$proxy = [System.Net.WebRequest]::DefaultWebProxy
-if ($proxy -ne $null) {
-    $proxy.Credentials = [System.Net.CredentialCache]::DefaultCredentials
-}
-$req = [System.Net.HttpWebRequest]::Create($payload.url)
-$req.Method = 'GET'
-$req.Timeout = [int]($payload.timeout * 1000)
-$req.ReadWriteTimeout = [int]($payload.timeout * 1000)
-$req.UserAgent = '%s'
-$req.Accept = 'application/json, text/plain, */*'
-$req.Headers.Add('Accept-Language', 'en-US,en;q=0.9')
-if ($proxy -ne $null) {
-    $req.Proxy = $proxy
-}
-$resp = $req.GetResponse()
-try {
-    $stream = $resp.GetResponseStream()
-    $ms = [System.IO.MemoryStream]::new()
-    $stream.CopyTo($ms)
-    [Console]::Out.Write([System.Convert]::ToBase64String($ms.ToArray()))
-}
-finally {
-    if ($stream -ne $null) { $stream.Dispose() }
-    if ($ms -ne $null) { $ms.Dispose() }
-    if ($resp -ne $null) { $resp.Dispose() }
-}
-""" % user_agent.replace("'", "''")
+    wininet = ctypes.WinDLL("wininet", use_last_error=True)
+    internet_open = wininet.InternetOpenW
+    internet_open.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.LPCWSTR,
+        wintypes.LPCWSTR, wintypes.DWORD,
+    ]
+    internet_open.restype = wintypes.HANDLE
 
-    startupinfo = None
-    creationflags = 0
-    if sys.platform == "win32":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    internet_open_url = wininet.InternetOpenUrlW
+    internet_open_url.argtypes = [
+        wintypes.HANDLE, wintypes.LPCWSTR, wintypes.LPCWSTR,
+        wintypes.DWORD, wintypes.DWORD, wintypes.DWORD_PTR,
+    ]
+    internet_open_url.restype = wintypes.HANDLE
 
-    payload = json.dumps({"url": url, "timeout": timeout})
-    proc = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive",
-         "-ExecutionPolicy", "Bypass", "-Command", script],
-        input=payload.encode("utf-8"),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout + 8,
-        startupinfo=startupinfo,
-        creationflags=creationflags,
-    )
-    if proc.returncode != 0:
-        err = proc.stderr.decode("utf-8", errors="replace").strip()
-        raise OSError(err or f"PowerShell exited with code {proc.returncode}")
+    internet_read_file = wininet.InternetReadFile
+    internet_read_file.argtypes = [
+        wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    internet_read_file.restype = wintypes.BOOL
+
+    internet_set_option = wininet.InternetSetOptionW
+    internet_set_option.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+    ]
+    internet_set_option.restype = wintypes.BOOL
+
+    internet_close_handle = wininet.InternetCloseHandle
+    internet_close_handle.argtypes = [wintypes.HANDLE]
+    internet_close_handle.restype = wintypes.BOOL
+
+    INTERNET_OPEN_TYPE_PRECONFIG = 0
+    INTERNET_FLAG_RELOAD = 0x80000000
+    INTERNET_FLAG_NO_CACHE_WRITE = 0x04000000
+    INTERNET_FLAG_NO_UI = 0x00000200
+    INTERNET_OPTION_CONNECT_TIMEOUT = 2
+    INTERNET_OPTION_SEND_TIMEOUT = 5
+    INTERNET_OPTION_RECEIVE_TIMEOUT = 6
+
+    handle = internet_open(user_agent, INTERNET_OPEN_TYPE_PRECONFIG, None, None, 0)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    request = None
     try:
-        return base64.b64decode(proc.stdout.strip(), validate=True)
-    except Exception as e:
-        preview = proc.stdout[:80].decode("utf-8", errors="replace")
-        raise OSError(f"PowerShell returned invalid binary payload: {preview}") from e
+        timeout_ms = wintypes.DWORD(int(timeout * 1000))
+        for option in (
+            INTERNET_OPTION_CONNECT_TIMEOUT,
+            INTERNET_OPTION_SEND_TIMEOUT,
+            INTERNET_OPTION_RECEIVE_TIMEOUT,
+        ):
+            internet_set_option(
+                handle, option, ctypes.byref(timeout_ms), ctypes.sizeof(timeout_ms)
+            )
+
+        headers = (
+            "Accept: application/json, text/plain, */*\r\n"
+            "Accept-Language: en-US,en;q=0.9\r\n"
+        )
+        flags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_UI
+        request = internet_open_url(handle, url, headers, len(headers), flags, 0)
+        if not request:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+        chunks = []
+        buf_size = 64 * 1024
+        while True:
+            buffer = ctypes.create_string_buffer(buf_size)
+            read = wintypes.DWORD(0)
+            if not internet_read_file(request, buffer, buf_size, ctypes.byref(read)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if read.value == 0:
+                break
+            chunks.append(buffer.raw[:read.value])
+        return b"".join(chunks)
+    finally:
+        if request:
+            internet_close_handle(request)
+        internet_close_handle(handle)
 
 
 # ── Multi-strategy retry ────────────────────────────────────────
 
 def build_strategies(url: str, user_agent: str = DEFAULT_USER_AGENT) -> list:
     """Return list of (url, proxy, ssl_verify, timeout, transport) tuples."""
-    log_winhttp_proxy_once()
     configured_proxy = get_system_proxy()
     system_proxy = configured_proxy or None
     return [
         (url, system_proxy, True,  12, "urllib"),      # system proxy
-        (url, "windows",    True,  25, "powershell"),  # Windows proxy/PAC
+        (url, "windows",    True,  25, "wininet"),     # Windows proxy/PAC
         (url, system_proxy, False, 12, "urllib"),      # SSL off
         (url, {},           True,  15, "urllib"),      # direct
         (url, {},           False, 15, "urllib"),      # direct, SSL off
@@ -235,14 +233,14 @@ def request_with_strategies(
         url_s, proxy, ssl_verify, timeout, transport = strategies[working_strategy]
         log.debug(f"Using cached strategy {working_strategy} ({proxy_label(proxy)})")
         try:
-            if transport == "powershell":
-                data = do_request_powershell(url_s, timeout, user_agent=user_agent)
+            if transport == "wininet":
+                data = do_request_wininet(url_s, timeout, user_agent=user_agent)
             else:
                 opener = build_opener(proxy, ssl_verify)
                 data = do_request(url_s, timeout, opener, user_agent=user_agent)
             return data, working_strategy
         except (urllib.error.URLError, socket.timeout, TimeoutError,
-                OSError, subprocess.SubprocessError) as e:
+                OSError) as e:
             log.warning(f"Cached strategy {working_strategy} failed: {e}")
 
     # Full retry
@@ -252,8 +250,8 @@ def request_with_strategies(
         ssl_l = "ssl-on" if ssl_verify else "ssl-off"
         log.debug(f"Attempt {i+1}/{len(strategies)}: {pl} {ssl_l} {transport}")
         try:
-            if transport == "powershell":
-                data = do_request_powershell(url_s, timeout, user_agent=user_agent)
+            if transport == "wininet":
+                data = do_request_wininet(url_s, timeout, user_agent=user_agent)
             else:
                 opener = build_opener(proxy, ssl_verify)
                 data = do_request(url_s, timeout, opener, user_agent=user_agent)
@@ -262,7 +260,7 @@ def request_with_strategies(
                 settings[strategy_key] = i
             return data, i
         except (urllib.error.URLError, socket.timeout, TimeoutError,
-                OSError, subprocess.SubprocessError) as e:
+                OSError) as e:
             log.warning(f"Attempt {i+1} failed: {type(e).__name__}: {e}")
             last_error = e
 
@@ -287,7 +285,4 @@ def network_hint(error) -> str:
     if isinstance(reason, ssl.SSLError):
         return ("SSL certificate/inspection error. "
                 "Check corporate proxy or certificate trust.")
-    if isinstance(error, subprocess.TimeoutExpired):
-        return ("Windows/PowerShell web request timed out. "
-                "Proxy/PAC route may be unreachable from this process.")
     return str(reason)

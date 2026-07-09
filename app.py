@@ -19,6 +19,7 @@ LANG_NAMES      = list(LANGUAGES.keys())
 NOTES_FILE      = data_file("notes.json")
 _DEFAULT_ENGINE = list(ENGINES.keys())[0]
 FONT_MIN, FONT_MAX = 7, 28
+VERSION_SEPARATOR_MIN_LEN = 10
 WINDOW_EFFECTS = [
     ("solid", "◎ Solid", 1.00, False),
     ("blur", "◍ Blur", 0.98, True),
@@ -28,6 +29,11 @@ WINDOW_EFFECTS = [
     ("ghost", "◌ Ghost", 0.80, False),
     ("clear", "□ Clear", 0.45, False),
 ]
+
+
+def _is_version_separator(line: str) -> bool:
+    stripped = line.strip()
+    return len(stripped) >= VERSION_SEPARATOR_MIN_LEN and set(stripped) == {"-"}
 
 
 # ─────────────────────────────────────────────
@@ -419,7 +425,7 @@ class SbtDeskTranApp:
 
         if info.notes:
             notes_lines = info.notes.strip().split("\n")
-            sep_indices = [i for i, line in enumerate(notes_lines) if line.strip().startswith("---")]
+            sep_indices = [i for i, line in enumerate(notes_lines) if _is_version_separator(line)]
             if len(sep_indices) >= 3:
                 short_text = "\n".join(notes_lines[sep_indices[0]:sep_indices[2]]).strip()
             elif len(sep_indices) == 2:

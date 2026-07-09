@@ -215,7 +215,17 @@ def _write_helper_batch(
 ) -> str:
     bat_path = os.path.join(tempfile.gettempdir(), "SbtDeskTran-apply-update.bat")
     backup_exe = current_exe + ".bak"
-    restart_line = f'start "" "{current_exe}"' if restart else "rem restart disabled"
+    restart_block = """if defined APP_DIR (
+    pushd "%APP_DIR%" >nul 2>&1
+    if errorlevel 1 (
+        start "" /D "%APP_DIR%" "%CURRENT_EXE%"
+    ) else (
+        start "" "%CURRENT_EXE%"
+        popd >nul 2>&1
+    )
+) else (
+    start "" "%CURRENT_EXE%"
+)""" if restart else "rem restart disabled"
     cleanup_lines = ""
     if download_path:
         cleanup_lines += f'\nif exist "{download_path}" del /f /q "{download_path}" >nul 2>&1'
@@ -227,10 +237,15 @@ set "NEW_EXE={new_exe}"
 set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
 set "PID={os.getpid()}"
+set "APP_DIR="
+set /a WAIT_COUNT=0
+for %%I in ("%CURRENT_EXE%") do set "APP_DIR=%%~dpI"
 
 :wait_app
 tasklist /FI "PID eq %PID%" | find "%PID%" >nul
 if not errorlevel 1 (
+    set /a WAIT_COUNT+=1
+    if !WAIT_COUNT! GEQ 30 taskkill /PID %PID% /F >nul 2>&1
     timeout /t 1 /nobreak >nul
     goto wait_app
 )
@@ -250,8 +265,8 @@ if not "!NEW_SIZE!"=="!CUR_SIZE!" (
     exit /b 1
 )
 {cleanup_lines}
-timeout /t 2 /nobreak >nul
-{restart_line}
+timeout /t 3 /nobreak >nul
+{restart_block}
 endlocal
 del /f /q "%~f0" >nul 2>&1
 """

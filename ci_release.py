@@ -22,7 +22,8 @@ APP_EXE_NAME = "SbtDeskTran.exe"
 DIST_DIR = pathlib.Path("dist")
 VERSION_FILE = pathlib.Path("version.py")
 VERSION_CHANGES = pathlib.Path("version_changes.txt")
-SEP = "-" * 70
+SECTION_SEPARATOR_LEN = 65
+SEP = "-" * SECTION_SEPARATOR_LEN
 
 
 # ── Version helpers ─────────────────────────────────────────────
@@ -143,14 +144,14 @@ def _find_section_versions(text: str) -> list[tuple[tuple, int, int]]:
     result = []
     i = 0
     while i < len(lines):
-        if lines[i].startswith("---"):
+        if _is_section_separator(lines[i]):
             # Next line might be a version title
             if i + 1 < len(lines):
                 m = re.match(r"v(\d+(?:\.\d+)+)", lines[i + 1].strip())
                 if m:
                     # Find closing ---
                     close = i + 2
-                    while close < len(lines) and not lines[close].startswith("---"):
+                    while close < len(lines) and not _is_section_separator(lines[close]):
                         close += 1
                     result.append((_ver_tuple(m.group(1)), i + 1, close))
                     i = close + 1
@@ -159,13 +160,18 @@ def _find_section_versions(text: str) -> list[tuple[tuple, int, int]]:
     return result
 
 
+def _is_section_separator(line: str) -> bool:
+    stripped = line.strip()
+    return len(stripped) >= 10 and set(stripped) == {"-"}
+
+
 def _extract_section_body(text: str, title_idx: int, close_idx: int) -> str:
     """Extract the body of a section (lines after closing --- until next --- or EOF)."""
     lines = text.splitlines()
     start = close_idx + 1
     body = []
     for i in range(start, len(lines)):
-        if lines[i].startswith("---"):
+        if _is_section_separator(lines[i]):
             break
         body.append(lines[i])
     return "\n".join(body).strip()

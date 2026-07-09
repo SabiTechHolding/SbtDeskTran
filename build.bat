@@ -60,6 +60,7 @@ python -m PyInstaller ^
     --windowed ^
     --name "SbtDeskTran" ^
     %ICON_ARG% ^
+    --add-data "icon.ico;." ^
     --collect-all tkinter ^
     --hidden-import tkinter ^
     --hidden-import tkinter.ttk ^
