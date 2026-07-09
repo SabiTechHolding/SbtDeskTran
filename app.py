@@ -397,7 +397,7 @@ class SbtDeskTranApp:
 
         updater.check_for_update_async(on_checked, settings=self.settings)
 
-def _prompt_update(self, info, parent=None):
+    def _prompt_update(self, info, parent=None):
         ok = self._show_update_dialog(info, parent=parent or self.root)
         if ok:
             self._install_update(info, parent=parent or self.root)
