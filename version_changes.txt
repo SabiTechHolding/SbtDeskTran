@@ -5,7 +5,7 @@ Keep release/change details here instead of putting them in the release body.
 Last released: v2026.07.09.19
 
 ----------------------------------------------------------------------
-v2026.07.09 - Persistent tab UI and Diff pane stability
+v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability
 ----------------------------------------------------------------------
 
 App:
@@ -15,6 +15,12 @@ App:
 - Compact, word-wrap, theme, and Translate layout changes still rebuild
   the affected tab UI intentionally so their controls and layout update
   correctly.
+- Added <<Paste>> event binding to source text to catch both right-click
+  and Ctrl+V paste, ensuring auto-translate triggers on any paste method.
+- Preserve pending source text when new input arrives while a previous
+  translation is still in progress. The pending text is automatically
+  re-translated once the current translation finishes, covering both
+  overwrite-paste and insert-paste during active translation.
 
 Diff:
 - Prevented Diff pane sash settings from being saved/restored while the

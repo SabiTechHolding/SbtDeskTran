@@ -111,6 +111,7 @@ class SbtDeskTranApp:
             self._window_effect = "blur"
         self._timer     = None
         self._busy      = False
+        self._pending_text = None
         self._notes     = self._load_notes()
         self._note_idx  = -1
         self._note_timer = None
@@ -675,6 +676,7 @@ class SbtDeskTranApp:
             sc_x.pack(side="bottom", fill="x", before=stf)
         self.src_text.pack(fill="both", expand=True)
         self.src_text.bind("<KeyRelease>",         self._on_src_key)
+        self.src_text.bind("<<Paste>>",            self._on_src_key)
         self.src_text.bind("<Control-Return>",     lambda e: self._do_translate())
         self.src_text.bind("<Control-MouseWheel>", self._on_zoom)
         self._bind_status_metrics(self.src_text, "Source")
@@ -1286,8 +1288,11 @@ class SbtDeskTranApp:
         except Exception: return
         if not text.strip():
             self._set_dst(""); return
-        if self._busy: return
+        if self._busy:
+            self._pending_text = text
+            return
         self._busy = True
+        self._pending_text = None
         self._set_status("Translating…","warning")
 
         eng  = getattr(self,"engine_var", None)
@@ -1315,12 +1320,19 @@ class SbtDeskTranApp:
                     suffix = f" ({chunks} chunks)" if chunks and chunks > 1 else ""
                     self._set_status(f"Translated via {eng_name}{suffix}","success")
                     self._busy = False
+                    if self._pending_text:
+                        self._do_translate()
                 self.root.after(0, done)
             except TranslationError as e:
-                self.root.after(0, lambda: (self._set_status(str(e),"error"), setattr(self,"_busy",False)))
+                self.root.after(0, lambda: (self._set_status(str(e),"error"), self._free_busy()))
             except Exception as e:
-                self.root.after(0, lambda: (self._set_status(f"Error: {e}","error"), setattr(self,"_busy",False)))
+                self.root.after(0, lambda: (self._set_status(f"Error: {e}","error"), self._free_busy()))
         threading.Thread(target=worker, daemon=True).start()
+
+    def _free_busy(self):
+        self._busy = False
+        if self._pending_text:
+            self._do_translate()
 
     def _set_dst(self, text):
         try:
