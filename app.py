@@ -397,28 +397,133 @@ class SbtDeskTranApp:
 
         updater.check_for_update_async(on_checked, settings=self.settings)
 
-    def _prompt_update(self, info, parent=None):
-        notes = f"\n\nVersion changes:\n{info.notes}" if info.notes else ""
-        ok = messagebox.askyesno(
-            "SbtDeskTran Update",
-            f"Version {info.version} is available.\n\nDownload and install now?{notes}",
-            parent=parent or self.root,
-        )
+def _prompt_update(self, info, parent=None):
+        ok = self._show_update_dialog(info, parent=parent or self.root)
         if ok:
             self._install_update(info, parent=parent or self.root)
 
-    def _install_update(self, info, parent=None):
+    def _show_update_dialog(self, info, parent=None):
+        t = self.theme
+        win = tk.Toplevel(parent or self.root)
+        win.title("SbtDeskTran Update")
+        win.transient(parent or self.root)
+        win.resizable(False, False)
+        win.configure(bg=t["bg"])
+
+        body = tk.Frame(win, bg=t["bg"], padx=18, pady=16)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text=f"Version {info.version} is available",
+                 bg=t["bg"], fg=t["fg"],
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+
+        if info.notes:
+            notes_lines = info.notes.strip().split("\n")
+            short_notes = []
+            seen_header = False
+            for line in notes_lines:
+                stripped = line.strip()
+                if stripped.startswith("#") or stripped.startswith(("v", "V")) and len(stripped) < 20:
+                    if not seen_header:
+                        seen_header = True
+                        short_notes.append(stripped)
+                    continue
+                short_notes.append(stripped)
+            short_text = "\n".join(short_notes).strip()
+            if not short_text:
+                short_text = info.notes.strip()
+
+            notes_frame = tk.Frame(body, bg=t["bg"])
+            notes_frame.pack(fill="both", expand=True, pady=(8, 0))
+            tk.Label(notes_frame, text="Version changes:",
+                     bg=t["bg"], fg=t["fg2"],
+                     font=t["font_ui"]).pack(anchor="w")
+
+            text_height = min(short_text.count("\n") + 1, 12)
+            text_widget = tk.Text(notes_frame, height=text_height, width=65,
+                                  bg=t["bg2"], fg=t["fg2"],
+                                  font=("Consolas", 9),
+                                  wrap="word", relief="flat", bd=4,
+                                  padx=6, pady=4)
+            text_widget.insert("1.0", short_text)
+            text_widget.configure(state="disabled")
+            text_widget.pack(fill="both", expand=True, pady=(4, 0))
+
+            scrollbar = themed_scrollbar(notes_frame, t, orient="vertical",
+                                         command=text_widget.yview)
+            scrollbar.pack(side="right", fill="y", before=text_widget)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+
+        actions = tk.Frame(body, bg=t["bg"])
+        actions.pack(fill="x", pady=(12, 0))
+
+        result = [False]
+        def on_yes():
+            result[0] = True
+            win.destroy()
+        def on_no():
+            win.destroy()
+
+        FlatButton(actions, text="Download & Install", theme=t,
+                   command=on_yes).pack(side="left")
+        FlatButton(actions, text="Cancel", theme=t,
+                   command=on_no).pack(side="right")
+
+        win.update_idletasks()
+        pw = parent or self.root
+        x = pw.winfo_rootx() + max(0, (pw.winfo_width() - win.winfo_width()) // 2)
+        y = pw.winfo_rooty() + max(0, (pw.winfo_height() - win.winfo_height()) // 2)
+        win.geometry(f"+{x}+{y}")
+        win.lift()
+        win.focus_force()
+        win.grab_set()
+        pw.wait_window(win)
+        return result[0]
+
+def _install_update(self, info, parent=None):
         def worker():
             try:
                 import updater
                 helper = updater.download_and_stage_update(info, restart=True, settings=self.settings)
 
                 def done():
-                    messagebox.showinfo(
-                        "SbtDeskTran Update",
-                        "Update downloaded. The app will close and restart with the new version.",
-                        parent=parent or self.root,
-                    )
+                    t = self.theme
+                    win = tk.Toplevel(parent or self.root)
+                    win.title("SbtDeskTran Update")
+                    win.transient(parent or self.root)
+                    win.resizable(False, False)
+                    win.configure(bg=t["bg"])
+
+                    body = tk.Frame(win, bg=t["bg"], padx=24, pady=20)
+                    body.pack(fill="both", expand=True)
+
+                    tk.Label(body, text="✓ Update downloaded successfully",
+                             bg=t["bg"], fg="#2ecc71",
+                             font=("Segoe UI", 13, "bold")).pack(anchor="center", pady=(0, 6))
+                    tk.Label(body, text=f"Version {info.version} has been downloaded.",
+                             bg=t["bg"], fg=t["fg2"],
+                             font=t["font_ui"]).pack(anchor="center")
+                    tk.Label(body, text="The app will now close and restart to apply the update.",
+                             bg=t["bg"], fg=t["fg2"],
+                             font=t["font_ui"]).pack(anchor="center", pady=(4, 12))
+
+                    def close_and_restart():
+                        win.destroy()
+                        updater.run_update_helper(helper)
+                        self.root.destroy()
+
+                    FlatButton(body, text="Restart Now", theme=t,
+                               command=close_and_restart).pack()
+
+                    win.update_idletasks()
+                    pw = parent or self.root
+                    x = pw.winfo_rootx() + max(0, (pw.winfo_width() - win.winfo_width()) // 2)
+                    y = pw.winfo_rooty() + max(0, (pw.winfo_height() - win.winfo_height()) // 2)
+                    win.geometry(f"+{x}+{y}")
+                    win.lift()
+                    win.focus_force()
+                    win.grab_set()
+                    pw.wait_window(win)
                     updater.run_update_helper(helper)
                     self.root.destroy()
 
