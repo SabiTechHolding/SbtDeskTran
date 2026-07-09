@@ -274,7 +274,19 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: 
 
 
 def run_update_helper(helper_bat: str) -> None:
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | 0x00000008  # DETACHED_PROCESS
+        )
     subprocess.Popen(
         ["cmd", "/c", helper_bat],
-        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        cwd=tempfile.gettempdir(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=creationflags,
     )

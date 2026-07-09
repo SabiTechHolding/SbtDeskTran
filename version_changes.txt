@@ -43,6 +43,9 @@ Auto Update:
 - Self-update now waits for the old process to exit, verifies the copied exe
   size, delays briefly before restart, and cleans staged update files after a
   successful replacement.
+- Restart now launches the update helper detached from the app process and
+  exits the old app process immediately after saving state, preventing the old
+  process from staying grouped with the restarted app in Task Manager.
 - The app window icon is applied from the bundled icon resource, and the CI
   PyInstaller build now bundles icon.ico so the title bar can use the same
   icon as the executable.

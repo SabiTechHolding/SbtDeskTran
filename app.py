@@ -503,8 +503,11 @@ class SbtDeskTranApp:
 
                     def close_and_restart():
                         win.destroy()
+                        self._flush_note_auto_save()
+                        self.save_fn(self.settings)
                         updater.run_update_helper(helper)
                         self.root.destroy()
+                        os._exit(0)
 
                     FlatButton(body, text="Restart Now", theme=t,
                                command=close_and_restart).pack()
