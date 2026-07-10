@@ -124,7 +124,7 @@ def do_request_wininet(url: str, timeout: int,
     internet_open_url = wininet.InternetOpenUrlW
     internet_open_url.argtypes = [
         wintypes.HANDLE, wintypes.LPCWSTR, wintypes.LPCWSTR,
-        wintypes.DWORD, wintypes.DWORD, wintypes.DWORD_PTR,
+        wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t,
     ]
     internet_open_url.restype = wintypes.HANDLE
 
