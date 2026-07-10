@@ -218,9 +218,9 @@ def _write_helper_batch(
     restart_block = """if defined APP_DIR (
     pushd "%APP_DIR%" >nul 2>&1
     if errorlevel 1 (
-        start "" /D "%APP_DIR%" "%CURRENT_EXE%"
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:CURRENT_EXE -WorkingDirectory $env:APP_DIR"
     ) else (
-        start "" "%CURRENT_EXE%"
+        start "" "%APP_FILE%"
         popd >nul 2>&1
     )
 ) else (
@@ -238,8 +238,12 @@ set "CURRENT_EXE={current_exe}"
 set "BACKUP_EXE={backup_exe}"
 set "PID={os.getpid()}"
 set "APP_DIR="
+set "APP_FILE="
 set /a RETRY_COUNT=0
-for %%I in ("%CURRENT_EXE%") do set "APP_DIR=%%~dpI"
+for %%I in ("%CURRENT_EXE%") do (
+    set "APP_DIR=%%~dpI"
+    set "APP_FILE=%%~nxI"
+)
 
 timeout /t 2 /nobreak >nul
 taskkill /PID %PID% /T /F >nul 2>&1
@@ -295,18 +299,19 @@ def download_and_stage_update(info: UpdateInfo, restart: bool = True, settings: 
 
 def run_update_helper(helper_bat: str) -> None:
     creationflags = 0
+    startupinfo = None
     if sys.platform == "win32":
-        creationflags = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | 0x00000008  # DETACHED_PROCESS
-        )
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
     subprocess.Popen(
-        ["cmd", "/c", helper_bat],
+        ["cmd.exe", "/d", "/q", "/c", helper_bat],
         cwd=tempfile.gettempdir(),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
+        startupinfo=startupinfo,
         creationflags=creationflags,
     )

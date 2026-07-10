@@ -21,6 +21,12 @@ Translate:
 Auto Update:
 - Fixed a self-update hang caused by a stuck find.exe window. The updater now
   replaces the exe by retrying file move/copy directly.
+- Restart after update now changes into the app folder and starts the exe by
+  file name, matching the same launch context as running it manually from CMD.
+  If the app folder cannot be entered by CMD, the helper falls back to
+  PowerShell Start-Process with the app folder as WorkingDirectory.
+- The update helper now runs hidden, so timeout/retry commands no longer show
+  a CMD window during self-update.
 
 -----------------------------------------------------------------
 v2026.07.09 - Persistent tab UI, auto-translate on paste, Diff pane stability, Update dialog UI
