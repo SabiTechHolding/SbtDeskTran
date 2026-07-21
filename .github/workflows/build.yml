@@ -2,61 +2,244 @@ name: Build & Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: windows-latest
+  verify:
+    name: Verify · ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+          - platform: macOS
+            os: macos-latest
+          - platform: Linux
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run fmt:rust
+      - run: npm run test:rust
+      - run: npm run lint:rust
+
+  release-metadata:
+    name: Prepare release metadata
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      display_version: ${{ steps.version.outputs.display_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Generate release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            version_parts="$(node -e "const v=require('./version.json'); const run=Number(process.env.GITHUB_RUN_NUMBER); if(!Number.isInteger(v.major)||v.major<0||!Number.isInteger(v.build)||v.build<0||!Number.isInteger(run)||run<1) process.exit(1); process.stdout.write(v.major+' '+Math.max(v.build+1,run))")"
+            read -r major build <<< "$version_parts"
+            tag="v${major}.$(date -u +'%y.%-m.%-d')-${build}"
+          fi
+          version="$(node scripts/set-version.mjs "$tag")"
+          display_version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "display_version=$display_version" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package · ${{ matrix.platform }}
+    needs: release-metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows x64
+            os: windows-latest
+            bundles: nsis
+            target: ""
+            rust_targets: ""
+            artifact: windows-x64
+            bundle_path: target/release/bundle/**
+          - platform: macOS Universal
+            os: macos-latest
+            bundles: app,dmg
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: macos-universal
+            bundle_path: target/universal-apple-darwin/release/bundle/**
+          - platform: Linux x64
+            os: ubuntu-22.04
+            bundles: appimage,deb,rpm
+            target: ""
+            rust_targets: ""
+            artifact: linux-x64
+            bundle_path: target/release/bundle/**
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "22"
+          cache: npm
 
-      - name: Install dependencies
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_targets }}
+
+      - run: npm ci
+
+      - name: Apply release version
+        run: node scripts/set-version.mjs "${{ needs.release-metadata.outputs.tag }}"
+
+      - name: Require updater signing secrets
+        shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is not configured"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not configured"
+          }
 
-      - name: Generate version
-        id: version
+      - name: Configure optional Apple signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          $date = Get-Date -Format "yyyy.MM.dd"
-          $build = "${{ github.run_number }}"
-          $version = "$date.$build"
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-          python ci_release.py set-version $version
+          write_env() {
+            if [[ -n "$2" ]]; then
+              {
+                echo "$1<<SBTDESKTOOL_ENV"
+                echo "$2"
+                echo "SBTDESKTOOL_ENV"
+              } >> "$GITHUB_ENV"
+            fi
+          }
+          write_env APPLE_CERTIFICATE "$CERTIFICATE"
+          write_env APPLE_CERTIFICATE_PASSWORD "$CERTIFICATE_PASSWORD"
+          write_env APPLE_SIGNING_IDENTITY "$SIGNING_IDENTITY"
+          write_env APPLE_ID "$NOTARY_APPLE_ID"
+          write_env APPLE_PASSWORD "$NOTARY_PASSWORD"
+          write_env APPLE_TEAM_ID "$NOTARY_TEAM_ID"
 
-      - name: Build EXE
+      - name: Build and upload signed packages to draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ matrix.target && format('--target {0} --bundles {1}', matrix.target, matrix.bundles) || format('--bundles {0}', matrix.bundles) }}
+          tagName: ${{ needs.release-metadata.outputs.tag }}
+          releaseName: SbtDeskTool ${{ needs.release-metadata.outputs.tag }}
+          releaseBody: Release validation is still running. See CHANGELOG.md for release notes.
+          releaseDraft: true
+          prerelease: false
+          updaterJsonPreferNsis: ${{ runner.os == 'Windows' }}
+          retryAttempts: 2
+
+      - name: Prepare Windows portable executable
+        if: runner.os == 'Windows'
+        id: portable
+        shell: pwsh
         run: |
-          python -m PyInstaller --onefile --windowed --name "SbtDeskTran" `
-            --icon=icon.ico --add-data "icon.ico;." --collect-all tkinter `
-            --hidden-import tkinter --hidden-import tkinter.ttk `
-            --hidden-import json --hidden-import threading `
-            --hidden-import urllib.request --hidden-import urllib.parse --hidden-import urllib.error `
-            --noconfirm main.py
+          $directory = "target/release/bundle/portable"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $name = "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-portable.exe"
+          $path = Join-Path $directory $name
+          Copy-Item -LiteralPath "target/release/sbt-desk-tool.exe" -Destination $path -Force
+          "path=$path" >> $env:GITHUB_OUTPUT
 
-      - name: Package release assets
-        run: python ci_release.py assets ${{ steps.version.outputs.version }}
+      - name: Upload Windows portable executable to draft release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ needs.release-metadata.outputs.tag }}" "${{ steps.portable.outputs.path }}" --clobber
 
-      - name: Upload artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SbtDeskTran-${{ steps.version.outputs.version }}
-          path: dist/SbtDeskTran-${{ steps.version.outputs.version }}.zip
+          name: SbtDeskTool-${{ needs.release-metadata.outputs.display_version }}-${{ matrix.artifact }}
+          path: |
+            ${{ matrix.bundle_path }}
+            ${{ runner.os == 'Windows' && steps.portable.outputs.path || '' }}
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Create GitHub Release
+  publish-release:
+    name: Publish complete release
+    needs: [release-metadata, package]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish draft after every platform succeeds
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python ci_release.py release ${{ steps.version.outputs.version }} --push-tag
+          gh release edit "${{ needs.release-metadata.outputs.tag }}" \
+            --title "SbtDeskTool ${{ needs.release-metadata.outputs.tag }}" \
+            --notes-file CHANGELOG.md \
+            --draft=false \
+            --latest

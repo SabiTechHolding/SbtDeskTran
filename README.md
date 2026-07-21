@@ -1,160 +1,121 @@
-# SbtDeskTran
+# SbtDeskTool
 
-Desktop translation app for Windows 11. No installation required when using the standalone build.
+SbtDeskTool is a compact desktop toolbox for comparing, translating and organizing text on Windows, macOS and Linux.
 
-## Requirements
+### Diff
 
-- Python 3.8+ for source runs
-- No runtime Python packages beyond the standard library
+![SbtDeskTool Diff workspace](docs/screenshots/diff.png)
 
-## Run From Source
+### Translate
 
-```bat
-python main.py
-```
+![SbtDeskTool Translate workspace](docs/screenshots/translate.png)
 
-or double-click:
+### Notes
 
-```bat
-SbtDeskTran.bat
-```
-
-## Build Standalone EXE
-
-Double-click `build.bat`, or run:
-
-```bat
-build.bat
-```
-
-The build script installs/checks PyInstaller, generates `icon.ico` if needed, and writes:
-
-```text
-dist\SbtDeskTran.exe
-```
-
-CI/CD creates the update assets after the exe is built. `SbtDeskTran-<version>.zip`
-is the auto-update package and contains only `SbtDeskTran.exe`. Publish it as a
-GitHub release asset together with `version_changes.txt`.
-
-## Auto Update
-
-Auto-update runs only in the Windows standalone exe build. It checks the latest
-public GitHub release from:
-
-```text
-https://api.github.com/repos/SabiTechHolding/SbtDeskTran/releases/latest
-```
-
-The latest release tag, for example `v2026.07.07.8`, is compared with the
-current app version. If the release is newer, the app downloads the release
-asset named like `SbtDeskTran-2026.07.07.8.zip`, or a direct `SbtDeskTran.exe`.
-
-When a newer version is found, the app downloads the package, extracts only
-`SbtDeskTran.exe`, verifies the PyInstaller archive and SHA-256, stages the
-new executable inside the app folder, cleans temporary update files, then
-shows Restart. Restart renames the staged executable into place, clears old
-PyInstaller environment variables so the new app gets its own runtime
-directory, and starts the app from its own folder. UNC app folders fall back to
-PowerShell when CMD cannot enter them. Version change text is read from
-`version_changes.txt` instead of being stored in a separate update file.
-
-For CI/CD releases, stamp the release tag before PyInstaller builds, then
-create release assets after `dist\SbtDeskTran.exe` exists:
-
-```bat
-python ci_release.py set-version %GITHUB_REF_NAME%
-python -m PyInstaller --onefile --windowed --name "SbtDeskTran" ^
-  --icon=icon.ico --add-data "icon.ico;." ...
-python ci_release.py assets %GITHUB_REF_NAME%
-python ci_release.py release %GITHUB_REF_NAME%
-```
-
-Tags like `v2026.07.07.8` are accepted; `version.py` uses `2026.07.07.8`.
-If CI passes release text such as
-`[v2026.07.07.8](https://github.com/.../releases/tag/v2026.07.07.8)`,
-the release helper extracts the first numeric tag automatically.
-
-The assets/release helpers update `Last released:` to the current tag
-automatically. If no matching `version_changes.txt` section exists for the
-release date, the helper appends an auto-generated section from commits and
-changed files since the previous release tag. The release step commits and
-pushes `version_changes.txt` when it changes, then uploads both
-`SbtDeskTran-<version>.zip` and `version_changes.txt`.
-
-Use a full checkout in CI, including tags, so the helper can find the previous
-release tag. For GitHub Actions, set `fetch-depth: 0` on `actions/checkout`.
+![SbtDeskTool Notes workspace](docs/screenshots/notes.png)
 
 ## Features
 
-| Feature | Details |
+- **Diff:** editable side-by-side comparison, two alignment algorithms, word-level highlighting, whitespace controls, optional copy/revert actions, focused-line detail and both common and per-editor search.
+- **Translate:** automatic translation, language detection, incremental reuse of unchanged lines, language swap, common Source/Translated search and network fallback strategies.
+- **Notes:** local Markdown notes with line numbers, filtering, preview, auto-save, resizable list and quick selection in Compact mode.
+- **Workspace:** independent wrap, zoom and status state for each tab; dark/light themes; drag-and-drop; Compact mode; always-on-top; tray controls; and a global show/hide shortcut.
+- **Updates:** signed in-app updates and platform-native release packages.
+
+## Supported platforms
+
+| Platform | Application and installer packages |
 | --- | --- |
-| Translation | Google Translate with auto language detection and corporate proxy/PAC fallback |
-| Translate layout | Horizontal or vertical split; horizontal scrollbars appear when Wrap is off |
-| Search / Find | Diff-style find bar in Translate and Notes with previous/next, case-sensitive, whole-word, and regex options; Translate searches Source and Translated, Notes searches the current note body |
-| Diff mode | Resizable top/bottom panes, synced left/right pane width, line and word-level highlighting |
-| Diff scrolling | Synced vertical scrolling and synced horizontal scrolling for left/right diff panes |
-| Notes | Local notes with optional Auto Save, saved/unsaved indicator, empty note list support, delete confirmation |
-| Status bar | Per-panel total chars, current line/character, and selected character count |
-| Font zoom | `Ctrl+MouseWheel` zoom, remembered separately for Translate, Diff, and Notes |
-| Window effects | Solid, Blur, Frosted, Transparent, Dim, Ghost, and Clear modes |
-| Compact mode | Small minimal window for quick translation; search/find controls are hidden |
-| Always on top | Pin the window above other windows |
-| Themes | Dark and Light themes |
-| Shortcuts | `Ctrl+F` focuses find, `Ctrl+Enter` translates immediately, `Ctrl+MouseWheel` changes font size |
+| Windows | Versioned portable `.exe` and per-user NSIS installer |
+| macOS | Universal Apple Silicon/Intel `.app` and `.dmg` |
+| Linux | AppImage, `.deb` and `.rpm` |
 
-## Runtime Data
+Window effects follow platform capabilities: Windows provides the complete effect set, macOS provides native blur/frosted effects, and Linux uses a solid window because transparency is controlled by the desktop compositor.
 
-`settings.json`, `notes.json`, and `app.log` are written to the first writable app data directory.
+## Search shortcuts
 
-When the app is launched from a UNC/network share, it prefers local user data directories before falling back to the executable folder. Set `SBTDESKTRAN_DATA_DIR` to force a specific runtime data directory.
+- `Ctrl+F` in any text area: search only the focused text area.
+- `Ctrl+Shift+F` in Diff or Translate: search both text areas in that tab.
+- `Enter` / `Shift+Enter`: next / previous common-search result.
+- `Escape`: close the active search or dialog.
 
-## Translation Networking
+Notes intentionally has no common search; use `Ctrl+F` inside its text area or filter the note list by title and content.
 
-The Google engine tries multiple routes:
+## Requirements
 
-- urllib using system/configured proxy
-- PowerShell/Windows networking using default proxy/PAC credentials
-- urllib direct
-- SSL-off retries for corporate TLS inspection edge cases
-- fallback Google Translate endpoint
+All platforms require Node.js 22 or newer and the stable Rust toolchain.
 
-Logs include the attempted route, proxy mode, and SSL mode.
+- **Windows:** Windows 10/11 with WebView2 and Visual Studio 2022 Build Tools with **Desktop development with C++**.
+- **macOS:** Xcode Command Line Tools.
+- **Linux (Ubuntu/Debian):** `libwebkit2gtk-4.1-dev`, `libappindicator3-dev`, `librsvg2-dev`, `patchelf` and `rpm`.
 
-## Adding More Translation Engines
+## Development
 
-Edit `translator_engine.py`, add a class with a `translate()` method, and register it in `ENGINES`:
-
-```python
-class MyEngine:
-    name = "My Engine"
-
-    def translate(self, text, src="auto", dest="en") -> dict:
-        return {"translated": "...", "detected_lang": "en", "source": self.name}
-
-
-ENGINES["My Engine"] = MyEngine()
+```bash
+npm ci
+npm run tauri dev
 ```
 
-## File Structure
+Verification commands:
+
+```bash
+npm run build
+npm run fmt:rust
+npm run test:rust
+npm run lint:rust
+```
+
+## Local test build
+
+Windows keeps one convenience script for producing a temporary test executable. It does not change the release version or build an installer:
+
+```powershell
+.\build.bat
+```
+
+Outputs:
 
 ```text
-translator/
-  main.py              - Entry point
-  app.py               - Main window and UI logic
-  widgets.py           - FlatButton and DiffViewer widgets
-  translator_engine.py - Translation backends
-  diff_engine.py       - Line/word-level diff algorithm
-  theme.py             - Dark and Light theme definitions
-  app_paths.py         - Writable runtime data path resolution
-  logger.py            - Rotating application logger
-  settings.json        - Auto-saved user preferences when local app dir is writable
-  notes.json           - Notes when local app dir is writable
-  icon.ico             - App icon
-  create_icon.py       - Regenerate icon.ico
-  build.bat            - Build standalone dist\SbtDeskTran.exe
-  ci_release.py        - CI version stamping and release asset generation
-  updater.py           - Auto-update check/download/apply logic
-  version_changes.txt  - External version change text
-  SbtDeskTran.bat      - Run with Python directly
+target\test-build\release\sbt-desk-tool.exe
+```
+
+The Windows script uses a dedicated directory, so an older running copy of the application cannot lock the new executable. Installers and release versions are produced only by GitHub Actions.
+
+The same package command works natively on macOS:
+
+```bash
+npm run package
+```
+
+And on Linux:
+
+```bash
+npm run package
+```
+
+Packages must be built on their native operating system. GitHub Actions verifies all three platforms, builds a universal macOS package, uploads the Windows portable executable, and keeps the release as a draft until every platform succeeds. Pushes to `main`, version tags and manual workflow runs all produce packages.
+
+## Version and releases
+
+Release versions use `MAJOR.YY.M.D-BUILD`, for example `1.26.7.21-38`. `MAJOR` is configured manually in `version.json` and can be changed for a major product release. Local test builds retain the current version. GitHub Actions chooses the greater of the next tracked `BUILD` and its increasing workflow run number, so release builds advance without being affected by local testing. Build tooling stores the SemVer-compatible form `MAJOR.YY.M-D.BUILD` internally while the application displays the release form.
+
+The updater reads signed release metadata from:
+
+```text
+https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.json
+```
+
+Configure `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as repository secrets before publishing. Private keys and `.env` must not be committed.
+
+The macOS package uses an ad-hoc signature by default so Apple Silicon does not treat the downloaded application as damaged. For public distribution without Gatekeeper warnings, also configure the Apple certificate and notarization secrets documented in `.env.example`. Windows Authenticode signing likewise requires a separate trusted code-signing certificate; updater signatures do not replace operating-system code signing.
+
+## Project structure
+
+```text
+src/                    Application interface and text tools
+src-tauri/src/          Native commands, engines, persistence and window control
+src-tauri/icons/        Cross-platform application icons
+docs/screenshots/       Product screenshots
+scripts/                Versioning and signing helpers
+.github/workflows/      Verification and release workflow
 ```
