@@ -3186,7 +3186,6 @@ dependencies = [
  "chrono",
  "log",
  "reqwest 0.12.28",
- "reqwest 0.13.4",
  "serde",
  "serde_json",
  "tauri",
@@ -3197,6 +3196,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-updater",
  "tokio",
+ "url",
  "window-vibrancy 0.5.3",
  "windows-sys 0.59.0",
 ]

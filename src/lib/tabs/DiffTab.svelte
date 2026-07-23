@@ -392,7 +392,7 @@
   .diff-tab { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
   .diff-header { display: flex; align-items: center; height: 28px; background: var(--bg3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .pane-header { display: flex; align-items: center; gap: 4px; padding: 0 8px; }
-  .left-header { flex: 1; }
+  .left-header { flex: 1; padding-left: 0; }
   .right-header { flex: 1; justify-content: flex-end; }
   .pane-title { font-size: 11px; font-weight: 600; color: var(--fg2); }
   .diff-actions { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
@@ -418,7 +418,7 @@
   .detail-delete { background: color-mix(in srgb, var(--diff-del-inline) 68%, transparent); border-radius: 2px; }
   .detail-insert { background: color-mix(in srgb, var(--diff-add-inline) 68%, transparent); border-radius: 2px; }
 
-  @media (max-width: 760px) {
+  @media (max-width: 980px) {
     .diff-actions { gap: 2px; padding-inline: 2px; }
     .pane-header { gap: 1px; padding-inline: 2px; }
     .pane-btn, .icon-btn, .algorithm-btn, .layout-btn,

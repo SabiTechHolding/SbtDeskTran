@@ -51,6 +51,7 @@
   },
   "plugins": {
     "updater": {
+      "dangerousInsecureTransportProtocol": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEREOUNCMUMyQjRDNkQ2MTIKUldRUzFzYTB3ckdjM1liYVpYdGJiQVpZREhoUmNKN3NTSmhBbG90cjFNbGVwc2t3ZVJCU0ExK0oK",
       "endpoints": [
         "https://github.com/SabiTechHolding/SbtDeskTool/releases/latest/download/latest.json"

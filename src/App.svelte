@@ -559,6 +559,7 @@
   <AppDialog
     title={dialog.title}
     message={dialog.message}
+    details={dialog.details}
     confirmLabel={dialog.confirmLabel}
     cancelLabel={dialog.cancelLabel}
     showCancel={dialog.showCancel}

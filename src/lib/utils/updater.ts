@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface DialogRequest {
   title: string;
   message: string;
+  details?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   showCancel?: boolean;
@@ -35,19 +36,18 @@ export async function checkForUpdates(
 ) {
   try {
     onProgress?.("Checking...");
-    const { Update } = await import("@tauri-apps/plugin-updater");
     const metadata = await invoke<UpdateMetadata | null>("check_for_update", {
       timeout: 20000,
     });
-    const update = metadata ? new Update(metadata) : null;
-    if (!update) {
+    if (!metadata) {
       if (force) await showDialog?.({ title: "Check Update", message: "You are up to date." });
       return;
     }
     if (!showDialog) return;
     const accepted = await showDialog({
-      title: `Update ${update.version}`,
-      message: `A new version is available. Download and install now?${update.body ? `\n\n${update.body}` : ""}`,
+      title: `Update ${metadata.version}`,
+      message: "A new version is available. Download and install now?",
+      details: metadata.body,
       confirmLabel: "Install",
       cancelLabel: "Later",
       showCancel: true,
@@ -55,11 +55,8 @@ export async function checkForUpdates(
     if (!accepted) {
       return;
     }
-    await update.downloadAndInstall((event) => {
-      if (event.event === "Started") onProgress?.("Downloading...");
-      else if (event.event === "Progress") onProgress?.("Downloading update...");
-      else onProgress?.("Installing...");
-    });
+    onProgress?.("Downloading update...");
+    await invoke("download_and_install_update", { rid: metadata.rid });
     await invoke("restart_app");
   } catch (error) {
     const detail = `${UPDATE_ENDPOINT} - ${errorMessage(error)}`;

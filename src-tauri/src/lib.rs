@@ -11,7 +11,7 @@ use commands::{
     notes::{delete_note, flush_notes, list_notes, save_note},
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
     translate::{translate, translate_units},
-    updater::check_for_update,
+    updater::{check_for_update, download_and_install_update},
     window::{
         exit_app, restart_app, set_always_on_top, set_window_effect, set_window_size,
         toggle_compact,
@@ -265,6 +265,7 @@ pub fn run() {
             get_network_strategy,
             record_update_error,
             check_for_update,
+            download_and_install_update,
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Resized(size) => {

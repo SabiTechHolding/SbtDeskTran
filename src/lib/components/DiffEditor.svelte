@@ -266,7 +266,7 @@
       renderOverviewRuler: true,
       glyphMargin: false,
       lineNumbers: "on",
-      lineNumbersMinChars: 3,
+      lineNumbersMinChars: 2,
       minimap: { enabled: false },
       overviewRulerLanes: 2,
       scrollBeyondLastLine: false,
@@ -845,9 +845,17 @@
       renderMarginRevertIcon: showCenterControls,
       renderGutterMenu: showCenterControls,
     });
+    syncLeftGlyphMargin();
     diffEditor.setModel(null);
     diffEditor.setModel({ original: leftModel, modified: rightModel });
     scheduleFocusedDetailRestore();
+  }
+
+  function syncLeftGlyphMargin() {
+    if (!diffEditor) return;
+    // The side-by-side widget forces this margin on for the original editor.
+    // Reserve it only when the copy/revert Actions gutter is enabled.
+    diffEditor.getOriginalEditor().updateOptions({ glyphMargin: showCenterControls });
   }
 
   function handleZoomWheel(event: WheelEvent) {
@@ -885,6 +893,7 @@
 
     const leftEditor = diffEditor.getOriginalEditor();
     const rightEditor = diffEditor.getModifiedEditor();
+    syncLeftGlyphMargin();
     leftSearchDecorations = leftEditor.createDecorationsCollection();
     rightSearchDecorations = rightEditor.createDecorationsCollection();
     leftFocusDecorations = leftEditor.createDecorationsCollection();
@@ -1002,6 +1011,7 @@
       renderMarginRevertIcon: showCenterControls,
       renderGutterMenu: showCenterControls,
     });
+    syncLeftGlyphMargin();
   });
 
   $effect(() => {
