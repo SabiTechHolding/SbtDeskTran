@@ -21,6 +21,35 @@ async function githubJson(url) {
   return response.json();
 }
 
+async function findRelease() {
+  const byTagUrl =
+    `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`;
+  const listUrl = `https://api.github.com/repos/${repository}/releases?per_page=100`;
+  const delays = [1000, 2000, 4000, 8000, 10000, 10000];
+
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const byTag = await fetch(byTagUrl, { headers });
+    if (byTag.ok) return byTag.json();
+    if (byTag.status !== 404) {
+      throw new Error(`${byTag.status} ${byTag.statusText}: ${byTagUrl}`);
+    }
+
+    // GitHub can briefly return 404 from the tag endpoint while a draft is
+    // being finalized. The authenticated release list includes drafts and is
+    // an independent way to resolve the same tag during that window.
+    const releases = await githubJson(listUrl);
+    const listed = releases.find((release) => release.tag_name === tag);
+    if (listed) return listed;
+
+    if (attempt === delays.length) break;
+    const delay = delays[attempt];
+    console.log(`Release ${tag} is not visible yet; retrying in ${delay / 1000}s...`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  throw new Error(`Release ${tag} was not found after waiting for GitHub draft propagation`);
+}
+
 async function githubAsset(asset) {
   const response = await fetch(asset.url, {
     headers: { ...headers, Accept: "application/octet-stream" },
@@ -31,9 +60,7 @@ async function githubAsset(asset) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-const release = await githubJson(
-  `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tag)}`,
-);
+const release = await findRelease();
 const assetsById = new Map(release.assets.map((asset) => [String(asset.id), asset]));
 const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
 const manifestAsset = assetsByName.get("latest.json");
