@@ -340,6 +340,7 @@
       { label: "Cut", action: () => void contextCut(sourceEditor), disabled: !isSource || !sel },
       { label: "Copy", action: () => void contextCopy(editor), disabled: !sel },
       { label: "Paste", action: () => void contextPaste(sourceEditor), disabled: !isSource },
+      { label: "Select All", action: () => editor?.selectAll() },
       { label: "", action: () => {}, divider: true },
       { label: "Select All", action: () => editor?.selectAll() },
     ];

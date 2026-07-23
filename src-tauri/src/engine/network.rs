@@ -1,5 +1,19 @@
 use std::time::Duration;
 
+const JSON_ACCEPT: &str = "application/json, text/plain, */*";
+const BINARY_ACCEPT: &str = "application/octet-stream";
+
+fn accept_header(url: &str) -> &'static str {
+    let is_github_release_asset = url::Url::parse(url).is_ok_and(|parsed| {
+        parsed.host_str() == Some("api.github.com") && parsed.path().contains("/releases/assets/")
+    });
+    if is_github_release_asset {
+        BINARY_ACCEPT
+    } else {
+        JSON_ACCEPT
+    }
+}
+
 async fn request_reqwest_bytes(
     url: &str,
     direct: bool,
@@ -20,7 +34,7 @@ async fn request_reqwest_bytes(
             "User-Agent",
             "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 SbtDeskTool",
         )
-        .header("Accept", "application/json, text/plain, */*")
+        .header("Accept", accept_header(url))
         .header("Accept-Language", "en-US,en;q=0.9")
         .send()
         .await
@@ -37,7 +51,8 @@ async fn request_reqwest_bytes(
 fn request_wininet_blocking(url: &str) -> Result<Vec<u8>, String> {
     use std::{ffi::c_void, iter, os::windows::ffi::OsStrExt, ptr};
     use windows_sys::Win32::Networking::WinInet::{
-        InternetCloseHandle, InternetOpenUrlW, InternetOpenW, InternetReadFile, InternetSetOptionW,
+        HttpQueryInfoW, InternetCloseHandle, InternetOpenUrlW, InternetOpenW, InternetReadFile,
+        InternetSetOptionW, HTTP_QUERY_FLAG_NUMBER, HTTP_QUERY_STATUS_CODE,
         INTERNET_FLAG_NO_CACHE_WRITE, INTERNET_FLAG_NO_UI, INTERNET_FLAG_RELOAD,
         INTERNET_OPEN_TYPE_PRECONFIG, INTERNET_OPTION_CONNECT_TIMEOUT,
         INTERNET_OPTION_RECEIVE_TIMEOUT, INTERNET_OPTION_SEND_TIMEOUT,
@@ -69,6 +84,10 @@ fn request_wininet_blocking(url: &str) -> Result<Vec<u8>, String> {
     }
 
     let agent = wide("SbtDeskTool");
+    let request_headers = wide(&format!(
+        "Accept: {}\r\nX-GitHub-Api-Version: 2022-11-28\r\n",
+        accept_header(url)
+    ));
     let url = wide(url);
     // SAFETY: all strings are valid, null-terminated UTF-16 buffers that live for the call.
     let session = InternetHandle(unsafe {
@@ -110,14 +129,36 @@ fn request_wininet_blocking(url: &str) -> Result<Vec<u8>, String> {
         InternetOpenUrlW(
             session.0,
             url.as_ptr(),
-            ptr::null(),
-            0,
+            request_headers.as_ptr(),
+            (request_headers.len() - 1) as u32,
             INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_NO_UI,
             0,
         )
     });
     if request.0.is_null() {
         return Err(last_error("request"));
+    }
+
+    let mut status_code = 0_u32;
+    let mut status_size = size_of::<u32>() as u32;
+    let mut status_index = 0_u32;
+    // SAFETY: all output pointers reference writable u32 values for the declared size.
+    let status_ok = unsafe {
+        HttpQueryInfoW(
+            request.0,
+            HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+            (&mut status_code as *mut u32).cast(),
+            &mut status_size,
+            &mut status_index,
+        )
+    };
+    if status_ok == 0 {
+        return Err(last_error("HTTP status query"));
+    }
+    if !(200..300).contains(&status_code) {
+        return Err(format!(
+            "Windows proxy/PAC HTTP error: status {status_code}"
+        ));
     }
 
     let mut response = Vec::new();
@@ -226,6 +267,22 @@ mod tests {
             assert_eq!(strategy_order(4), vec![4, 0, 2, 3]);
             assert_eq!(strategy_order(1), vec![0, 2, 3, 4]);
         }
+    }
+
+    #[test]
+    fn github_release_assets_request_binary_content() {
+        assert_eq!(
+            accept_header("https://api.github.com/repos/example/app/releases/assets/123"),
+            BINARY_ACCEPT
+        );
+        assert_eq!(
+            accept_header("https://github.com/example/app/releases/latest/download/latest.json"),
+            JSON_ACCEPT
+        );
+        assert_eq!(
+            accept_header("https://api.github.com.example.test/releases/assets/123"),
+            JSON_ACCEPT
+        );
     }
 
     #[cfg(target_os = "windows")]

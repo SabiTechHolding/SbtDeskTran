@@ -2,6 +2,9 @@
   import { onDestroy, onMount } from "svelte";
   import { applyMonacoTheme, configureMonaco, currentAppTheme, monaco } from "../utils/monaco";
   import { installMonacoFindTooltip } from "../utils/monacoFindTooltip";
+  import { installNotepadPlusPlusKeybindings } from "../utils/editorKeybindings";
+  import ContextMenu from "./ContextMenu.svelte";
+  import type { ContextItem } from "./ContextMenu.svelte";
 
   type SearchFlags = { caseSensitive: boolean; wholeWord: boolean; regex: boolean };
   type MonacoFindState = {
@@ -54,6 +57,7 @@
   let themeObserver: MutationObserver | undefined;
   let disposeFindTooltip: (() => void) | undefined;
   let activeSearch: { query: string; flags: SearchFlags } | null = null;
+  let contextMenu = $state<{ items: ContextItem[]; x: number; y: number } | null>(null);
   const disposables: monaco.IDisposable[] = [];
   const WORD_SEPARATORS = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
 
@@ -154,6 +158,20 @@
     return findController()?.getState().isRevealed ?? false;
   }
 
+  function showSimpleContextMenu(event: MouseEvent) {
+    const hasSelection = Boolean(selectionText());
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: "Cut", action: () => void cutSelection(), disabled: readonly || !hasSelection },
+        { label: "Copy", action: () => void copySelection(), disabled: !hasSelection },
+        { label: "Paste", action: () => void pasteText(), disabled: readonly },
+        { label: "Select All", action: selectAll, disabled: !model?.getValueLength() },
+      ],
+    };
+  }
+
   function emitCursor() {
     if (!editor || !model) return;
     const position = editor.getPosition();
@@ -203,7 +221,7 @@
       fontSize,
       lineHeight: 0,
       padding: { top: 6, bottom: 6 },
-      contextmenu: !onContextMenu,
+      contextmenu: false,
       fixedOverflowWidgets: true,
       mouseWheelZoom: false,
       stickyScroll: { enabled: false },
@@ -214,6 +232,7 @@
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF, () => {
       void editor?.getAction("actions.find")?.run();
     });
+    installNotepadPlusPlusKeybindings(editor);
     const findState = findController()?.getState();
     if (findState) {
       disposables.push(findState.onFindReplaceStateChange((event) => {
@@ -232,12 +251,11 @@
       editor.onDidFocusEditorText(emitCursor),
       editor.onKeyDown((event) => onKeyDown?.(event.browserEvent)),
     );
-    if (onContextMenu) {
-      container.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        onContextMenu(event);
-      });
-    }
+    container.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      if (onContextMenu) onContextMenu(event);
+      else showSimpleContextMenu(event);
+    });
     container.addEventListener("wheel", handleWheelEvent, { capture: true, passive: false });
     container.addEventListener("keydown", handleFindShortcut, { capture: true });
     disposeFindTooltip = installMonacoFindTooltip(container);
@@ -290,6 +308,10 @@
 </script>
 
 <div bind:this={container} class="monaco-editor-root" style:--editor-text-color={textColor}></div>
+
+{#if contextMenu}
+  <ContextMenu items={contextMenu.items} x={contextMenu.x} y={contextMenu.y} onClose={() => contextMenu = null} />
+{/if}
 
 <style>
   .monaco-editor-root { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }

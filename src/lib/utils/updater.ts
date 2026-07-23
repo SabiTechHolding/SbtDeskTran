@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { formatAppVersion } from "./version";
 
 export interface DialogRequest {
   title: string;
@@ -45,7 +46,7 @@ export async function checkForUpdates(
     }
     if (!showDialog) return;
     const accepted = await showDialog({
-      title: `Update ${metadata.version}`,
+      title: `Update ${formatAppVersion(metadata.version)}`,
       message: "A new version is available. Download and install now?",
       details: metadata.body,
       confirmLabel: "Install",

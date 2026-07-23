@@ -100,6 +100,10 @@
   box-sizing: border-box;
 }
 
+.sbt-bookmarked-line {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
 html, body, #app {
   height: 100%;
   overflow: hidden;

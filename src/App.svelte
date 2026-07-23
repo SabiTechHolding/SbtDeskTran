@@ -430,7 +430,15 @@
     event.preventDefault();
     event.stopPropagation();
   }
+
+  function disableNativeContextMenu(event: MouseEvent) {
+    // Editor components still receive this event and open the app's own menu.
+    // Preventing the default at document level only disables the WebView menu.
+    event.preventDefault();
+  }
 </script>
+
+<svelte:document oncontextmenu={disableNativeContextMenu} />
 
 {#if booting}
   <div class="splash-root" data-theme={$themeStore.current}>
@@ -507,6 +515,25 @@
 
   <!-- Keep all tabs mounted but hide inactive for state preservation -->
   <main class="content">
+    <div class="tab-panel" class:active={activeTab === "tran"}>
+      <TranslateTab
+        bind:this={translateTab}
+        {layout}
+        {compact}
+        wordWrap={wordWraps.tran}
+        showWhitespace={showWhitespaces.tran}
+        {srcLang} {destLang}
+        fontSize={fontSizes.tran}
+        sashPos={sashPosTran}
+        onZoom={(d) => handleZoom("tran", d)}
+        onCursorChange={handleTranCursor}
+        onStatusUpdate={(text, kind, time, chars) => {
+          setTabStatus("tran", text, kind);
+          transTime = time;
+          transChars = chars;
+        }}
+      />
+    </div>
     <div class="tab-panel" class:active={activeTab === "diff"}>
       <DiffTab
         bind:this={diffTab}
@@ -530,25 +557,6 @@
         onCursorChange={handleDiffCursor}
         onStatusUpdate={(text, kind) => setTabStatus("diff", text, kind)}
         onStatsUpdate={(stats) => { diffStats = stats; }}
-      />
-    </div>
-    <div class="tab-panel" class:active={activeTab === "tran"}>
-      <TranslateTab
-        bind:this={translateTab}
-        {layout}
-        {compact}
-        wordWrap={wordWraps.tran}
-        showWhitespace={showWhitespaces.tran}
-        {srcLang} {destLang}
-        fontSize={fontSizes.tran}
-        sashPos={sashPosTran}
-        onZoom={(d) => handleZoom("tran", d)}
-        onCursorChange={handleTranCursor}
-        onStatusUpdate={(text, kind, time, chars) => {
-          setTabStatus("tran", text, kind);
-          transTime = time;
-          transChars = chars;
-        }}
       />
     </div>
     <div class="tab-panel" class:active={activeTab === "note"}>

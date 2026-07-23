@@ -266,8 +266,14 @@ jobs:
             throw "Expected exactly one Windows NSIS installer, found $($installers.Count)"
           }
           $installer = $installers[0]
-          $installerArchive = Join-Path $directory "$($installer.BaseName).zip"
-          Compress-Archive -LiteralPath $installer.FullName -DestinationPath $installerArchive -Force
+          $installerDownloadName = "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-setup.exe"
+          $installerArchive = Join-Path $directory "SbtDeskTool_${{ needs.release-metadata.outputs.display_version }}_x64-setup.zip"
+          $installerDirectory = Join-Path $directory "installer-stage"
+          New-Item -ItemType Directory -Force -Path $installerDirectory | Out-Null
+          $installerDownload = Join-Path $installerDirectory $installerDownloadName
+          Copy-Item -LiteralPath $installer.FullName -Destination $installerDownload -Force
+          Compress-Archive -LiteralPath $installerDownload -DestinationPath $installerArchive -Force
+          Remove-Item -LiteralPath $installerDirectory -Recurse -Force
 
           $portableZip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $portableArchive))
           try {
@@ -282,8 +288,8 @@ jobs:
           $installerZip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $installerArchive))
           try {
             $installerEntries = @($installerZip.Entries | ForEach-Object FullName)
-            if ($installerEntries.Count -ne 1 -or $installerEntries[0] -ne $installer.Name) {
-              throw "Installer ZIP must contain only $($installer.Name); found: $($installerEntries -join ', ')"
+            if ($installerEntries.Count -ne 1 -or $installerEntries[0] -ne $installerDownloadName) {
+              throw "Installer ZIP must contain only $installerDownloadName; found: $($installerEntries -join ', ')"
             }
           } finally {
             $installerZip.Dispose()
@@ -304,14 +310,9 @@ jobs:
             "${{ steps.windows_downloads.outputs.installer_path }}" `
             --clobber
 
-          # tauri-action also uploads the unpacked NSIS installer. Keep the
-          # signed .nsis.zip used by latest.json, but remove the direct EXE
-          # download after the user-facing installer ZIP is available.
-          $installerAsset = "${{ steps.windows_downloads.outputs.installer_asset_name }}"
-          $releaseAssets = @(gh release view "${{ needs.release-metadata.outputs.tag }}" --json assets --jq '.assets[].name')
-          if ($releaseAssets -contains $installerAsset) {
-            gh release delete-asset "${{ needs.release-metadata.outputs.tag }}" $installerAsset --yes
-          }
+          # Keep the unpacked signed installer uploaded by tauri-action. The
+          # updater manifest points to that exact asset; the ZIP is only the
+          # safer user-facing browser download.
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
@@ -336,6 +337,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Validate updater assets and signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.tag }}
+        run: node scripts/validate-updater-release.mjs
 
       - name: Publish draft after every platform succeeds
         env:

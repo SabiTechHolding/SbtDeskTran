@@ -33,12 +33,16 @@
     if (e.key === "Escape") onClose();
   }
 
+  function handleOutsidePointer(event: PointerEvent) {
+    if (event.button === 0 && menuEl && !menuEl.contains(event.target as Node)) onClose();
+  }
+
   onMount(() => {
     menuEl?.focus();
   });
 </script>
 
-<svelte:window onkeydown={handleKeyDown} />
+<svelte:window onkeydown={handleKeyDown} onpointerdown={handleOutsidePointer} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
 <div

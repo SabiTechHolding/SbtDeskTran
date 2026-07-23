@@ -12,6 +12,9 @@ const stageDirectory = path.join(
 );
 const frontendDirectory = path.join(stageDirectory, "frontend");
 const overridePath = path.join(stageDirectory, "tauri.override.json");
+const cargoTargetDirectory = process.env.CARGO_TARGET_DIR
+  ? path.resolve(projectRoot, process.env.CARGO_TARGET_DIR)
+  : path.join(projectRoot, "target");
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -57,6 +60,12 @@ try {
     )}\n`,
   );
   runNpm(["run", "tauri", "--", "build", "--config", overridePath, "--no-bundle"]);
+  if (process.platform === "win32") {
+    run(process.execPath, [
+      "scripts/set-windows-product-version.mjs",
+      path.join(cargoTargetDirectory, "release", "sbt-desk-tool.exe"),
+    ]);
+  }
 } finally {
   fs.rmSync(stageDirectory, { recursive: true, force: true });
 }

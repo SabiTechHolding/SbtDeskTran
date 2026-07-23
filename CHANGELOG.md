@@ -6,6 +6,7 @@
 - Improved controls and layouts for compact and narrow windows.
 - Improved language selection and swapping in Translate Compact mode.
 - Made the Notes list more compact and added drag-and-drop ordering.
+- Added familiar keyboard shortcuts and simpler editor right-click menus.
 - Made startup and window resizing smoother.
 - Improved update reliability, including on managed company networks.
 - Simplified downloads and improved packages for Windows, macOS and Linux.

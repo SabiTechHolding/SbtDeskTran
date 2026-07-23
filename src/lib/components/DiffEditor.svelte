@@ -11,6 +11,9 @@
   import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
   import { saveSetting } from "../stores/settings";
   import { installMonacoFindTooltip } from "../utils/monacoFindTooltip";
+  import { installNotepadPlusPlusKeybindings } from "../utils/editorKeybindings";
+  import ContextMenu from "./ContextMenu.svelte";
+  import type { ContextItem } from "./ContextMenu.svelte";
 
   interface InlineToken {
     text: string;
@@ -126,6 +129,7 @@
   let disposeFindTooltip: (() => void) | undefined;
   let whitespaceFrame = 0;
   let inlineHighlightFrame = 0;
+  let contextMenu = $state<{ items: ContextItem[]; x: number; y: number } | null>(null);
   const disposables: monaco.IDisposable[] = [];
 
   const WORD_SEPARATORS = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
@@ -280,7 +284,7 @@
       padding: { top: 6, bottom: 6 },
       renderLineHighlight: "all",
       renderLineHighlightOnlyWhenFocus: true,
-      contextmenu: true,
+      contextmenu: false,
       fixedOverflowWidgets: true,
       stickyScroll: { enabled: false },
       bracketPairColorization: { enabled: false },
@@ -865,6 +869,75 @@
     onZoom?.(event.deltaY < 0 ? 1 : -1);
   }
 
+  function selectedText(editor: monaco.editor.ICodeEditor) {
+    const selection = editor.getSelection();
+    const model = editor.getModel();
+    return selection && model ? model.getValueInRange(selection) : "";
+  }
+
+  async function writeClipboard(text: string) {
+    try {
+      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+      await writeText(text);
+      return true;
+    } catch {
+      try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+    }
+  }
+
+  async function copySelection(editor: monaco.editor.ICodeEditor) {
+    const text = selectedText(editor);
+    if (text) await writeClipboard(text);
+  }
+
+  async function cutSelection(editor: monaco.editor.ICodeEditor) {
+    const selection = editor.getSelection();
+    const text = selectedText(editor);
+    if (!selection || !text || !(await writeClipboard(text))) return;
+    editor.executeEdits("sbt-cut", [{ range: selection, text: "", forceMoveMarkers: true }]);
+    editor.focus();
+  }
+
+  async function pasteText(editor: monaco.editor.ICodeEditor) {
+    try {
+      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+      const text = await readText();
+      const selection = editor.getSelection();
+      if (!selection || !text) return;
+      editor.executeEdits("sbt-paste", [{ range: selection, text, forceMoveMarkers: true }]);
+      editor.focus();
+    } catch {
+      try {
+        const text = await navigator.clipboard.readText();
+        const selection = editor.getSelection();
+        if (!selection || !text) return;
+        editor.executeEdits("sbt-paste", [{ range: selection, text, forceMoveMarkers: true }]);
+        editor.focus();
+      } catch { /* Clipboard unavailable. */ }
+    }
+  }
+
+  function selectAll(editor: monaco.editor.ICodeEditor) {
+    const model = editor.getModel();
+    if (!model) return;
+    editor.setSelection(model.getFullModelRange());
+    editor.focus();
+  }
+
+  function showSimpleContextMenu(event: MouseEvent, editor: monaco.editor.ICodeEditor) {
+    const hasSelection = Boolean(selectedText(editor));
+    contextMenu = {
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { label: "Cut", action: () => void cutSelection(editor), disabled: !hasSelection },
+        { label: "Copy", action: () => void copySelection(editor), disabled: !hasSelection },
+        { label: "Paste", action: () => void pasteText(editor) },
+        { label: "Select All", action: () => selectAll(editor), disabled: !editor.getModel()?.getValueLength() },
+      ],
+    };
+  }
+
   function emitCursor(side: "left" | "right", editor: monaco.editor.ICodeEditor) {
     const position = editor.getPosition();
     const selection = editor.getSelection();
@@ -893,6 +966,8 @@
 
     const leftEditor = diffEditor.getOriginalEditor();
     const rightEditor = diffEditor.getModifiedEditor();
+    installNotepadPlusPlusKeybindings(leftEditor);
+    installNotepadPlusPlusKeybindings(rightEditor);
     syncLeftGlyphMargin();
     leftSearchDecorations = leftEditor.createDecorationsCollection();
     rightSearchDecorations = rightEditor.createDecorationsCollection();
@@ -935,6 +1010,16 @@
       }),
       rightEditor.onMouseDown((event) => {
         if (event.target.position) focusDiffLine("right", event.target.position.lineNumber);
+      }),
+      leftEditor.onContextMenu((event) => {
+        const browserEvent = event.event.browserEvent;
+        browserEvent.preventDefault();
+        showSimpleContextMenu(browserEvent, leftEditor);
+      }),
+      rightEditor.onContextMenu((event) => {
+        const browserEvent = event.event.browserEvent;
+        browserEvent.preventDefault();
+        showSimpleContextMenu(browserEvent, rightEditor);
       }),
       leftEditor.onDidLayoutChange(() => {
         if (layoutSaveTimer) clearTimeout(layoutSaveTimer);
@@ -1060,6 +1145,10 @@
   class:ignore-whitespace={ignoreWhitespace}
   class:legacy-algorithm={diffAlgorithm === "legacy"}
 ></div>
+
+{#if contextMenu}
+  <ContextMenu items={contextMenu.items} x={contextMenu.x} y={contextMenu.y} onClose={() => contextMenu = null} />
+{/if}
 
 <style>
   .monaco-diff-root {
