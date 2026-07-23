@@ -15,6 +15,8 @@ export interface AppSettings {
   diff_word_diff: boolean;
   diff_ignore_whitespace: boolean;
   diff_show_whitespace: boolean;
+  tran_show_whitespace: boolean;
+  note_show_whitespace: boolean;
   diff_algorithm: "legacy" | "advanced";
   note_auto_save: boolean;
   word_wrap: boolean;
@@ -54,6 +56,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   diff_word_diff: true,
   diff_ignore_whitespace: false,
   diff_show_whitespace: false,
+  tran_show_whitespace: false,
+  note_show_whitespace: false,
   diff_algorithm: "legacy",
   note_auto_save: true,
   word_wrap: true,

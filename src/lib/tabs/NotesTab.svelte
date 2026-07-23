@@ -8,15 +8,17 @@
   import { saveSetting } from "../stores/settings";
 
   let {
-    compact, wordWrap, fontSize, autoSave: initialAutoSave, initialSidebarWidth, onZoom, onToggleWrap, onCursorChange, onStatusUpdate, onNotesChange,
+    compact, wordWrap, showWhitespace, fontSize, autoSave: initialAutoSave, initialSidebarWidth, onZoom, onToggleWrap, onToggleWhitespace, onCursorChange, onStatusUpdate, onNotesChange,
   }: {
     compact: boolean;
     wordWrap: boolean;
+    showWhitespace: boolean;
     fontSize: number;
     autoSave: boolean;
     initialSidebarWidth: number;
     onZoom: (delta: number) => void;
     onToggleWrap: () => void;
+    onToggleWhitespace: () => void;
     onCursorChange?: (line: number, col: number, selLen: number, chars: number) => void;
     onStatusUpdate?: (text: string, kind: string) => void;
     onNotesChange?: (notes: Array<{ id: number; title: string }>, selectedId: number | null) => void;
@@ -42,7 +44,14 @@
   let previewHtml = $state("");
   let showDeleteConfirm = $state(false);
   let sidebarWidth = $state(220);
+  let draggedNoteId = $state<number | null>(null);
+  let dropTargetId = $state<number | null>(null);
+  let dropAfter = $state(false);
+  let pendingDragNoteId: number | null = null;
+  let dragStartY = 0;
+  let suppressNoteClick = false;
   let panesEl: HTMLDivElement;
+  let noteListEl = $state<HTMLDivElement>();
   $effect(() => { sidebarWidth = Math.max(180, initialSidebarWidth); });
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -85,6 +94,7 @@
     document.removeEventListener("note:setContent", handleDropEvent);
     document.removeEventListener("app:flush", handleAppFlush);
     if (debounceTimer) clearTimeout(debounceTimer);
+    removeNotePointerListeners();
     handleAppFlush();
   });
 
@@ -260,6 +270,95 @@
     );
   }
 
+  function startNotePointerDrag(event: PointerEvent, noteId: number) {
+    if (event.button !== 0) return;
+    pendingDragNoteId = noteId;
+    dragStartY = event.clientY;
+    draggedNoteId = null;
+    dropTargetId = null;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.addEventListener("pointermove", moveNotePointerDrag, { passive: false });
+    document.addEventListener("pointerup", finishNotePointerDrag);
+    document.addEventListener("pointercancel", finishNotePointerDrag);
+  }
+
+  function moveNotePointerDrag(event: PointerEvent) {
+    if (pendingDragNoteId === null) return;
+    if (draggedNoteId === null && Math.abs(event.clientY - dragStartY) < 4) return;
+    event.preventDefault();
+    draggedNoteId = pendingDragNoteId;
+
+    const listBounds = noteListEl?.getBoundingClientRect();
+    if (listBounds && event.clientY < listBounds.top + 24) noteListEl.scrollTop -= 8;
+    else if (listBounds && event.clientY > listBounds.bottom - 24) noteListEl.scrollTop += 8;
+
+    const target = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>(".note-item[data-note-id]");
+    const noteId = Number(target?.dataset.noteId);
+    if (!target || !Number.isFinite(noteId) || noteId === draggedNoteId) {
+      dropTargetId = null;
+      return;
+    }
+    const bounds = target.getBoundingClientRect();
+    dropTargetId = noteId;
+    dropAfter = event.clientY >= bounds.top + bounds.height / 2;
+  }
+
+  function finishNotePointerDrag() {
+    const draggedId = draggedNoteId;
+    const targetId = dropTargetId;
+    const insertAfter = dropAfter;
+    removeNotePointerListeners();
+    pendingDragNoteId = null;
+    draggedNoteId = null;
+    dropTargetId = null;
+    dropAfter = false;
+
+    if (draggedId !== null) {
+      suppressNoteClick = true;
+      setTimeout(() => { suppressNoteClick = false; }, 0);
+    }
+    if (draggedId !== null && targetId !== null && draggedId !== targetId) {
+      void reorderNote(draggedId, targetId, insertAfter);
+    }
+  }
+
+  function removeNotePointerListeners() {
+    document.removeEventListener("pointermove", moveNotePointerDrag);
+    document.removeEventListener("pointerup", finishNotePointerDrag);
+    document.removeEventListener("pointercancel", finishNotePointerDrag);
+  }
+
+  function handleNoteClick(event: MouseEvent, noteId: number) {
+    if (suppressNoteClick) {
+      event.preventDefault();
+      suppressNoteClick = false;
+      return;
+    }
+    void selectNote(noteId);
+  }
+
+  async function reorderNote(draggedId: number, targetId: number, insertAfter: boolean) {
+    if (isDirty && autoSave) await maybeSave();
+
+    const previousNotes = notes;
+    const draggedNote = notes.find((note) => note.id === draggedId);
+    if (!draggedNote) return;
+    const reordered = notes.filter((note) => note.id !== draggedId);
+    const targetIndex = reordered.findIndex((note) => note.id === targetId);
+    if (targetIndex < 0) return;
+    reordered.splice(targetIndex + (insertAfter ? 1 : 0), 0, draggedNote);
+    notes = reordered;
+
+    try {
+      await invoke("reorder_notes", { ids: reordered.map((note) => note.id) });
+      onStatusUpdate?.("Notes reordered", "success");
+    } catch (error) {
+      notes = previousNotes;
+      onStatusUpdate?.(`Cannot reorder notes: ${error}`, "error");
+    }
+  }
+
   async function copyText(text: string) {
     try {
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
@@ -308,7 +407,7 @@
         />
         <div class="editor-actions">
           <button class="pane-btn" class:active={showPreview} onclick={() => (showPreview = !showPreview)} title="Toggle Preview">
-            <AppIcon name="preview" size={12} /><span class="btn-label">Preview</span>
+            <AppIcon name="preview" size={14} /><span class="btn-label">Preview</span>
           </button>
           <label class="auto-toggle">
             <input type="checkbox" bind:checked={autoSave} onchange={toggleAutoSave} /><span class="auto-label">Auto</span>
@@ -316,9 +415,12 @@
           <span class="save-state" class:dirty={isDirty}>
             {isDirty ? "●" : "✓"}
           </span>
-          <button class="pane-btn" onclick={maybeSave} title="Save Note"><AppIcon name="save" size={12} /><span class="btn-label">Save</span></button>
-          <button class="pane-btn" onclick={() => copyText(body)} title="Copy Note"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
-          <button class="pane-btn" class:active={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Notes"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
+          <button class="pane-btn" onclick={maybeSave} title="Save Note"><AppIcon name="save" size={14} /><span class="btn-label">Save</span></button>
+          <button class="pane-btn" onclick={() => copyText(body)} title="Copy Note"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
+          <div class="control-group" aria-label="Notes editor display">
+            <button class="control-btn" class:toggled={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Notes"><AppIcon name="wrap" size={14} /><span class="btn-label">Wrap</span></button>
+            <button class="control-btn" class:toggled={showWhitespace} onclick={onToggleWhitespace} title="Show or hide whitespace characters"><AppIcon name="whitespace" size={14} /><span class="btn-label">Show WS</span></button>
+          </div>
         </div>
       </div>
       {/if}
@@ -332,6 +434,7 @@
           value={body}
           {fontSize}
           {wordWrap}
+          {showWhitespace}
           showLineNumbers={true}
           language="markdown"
           onChange={onBodyChange}
@@ -357,15 +460,20 @@
         <AppIcon name="search" size={13} />
         <input type="text" class="sidebar-filter" placeholder="Filter notes..." bind:value={searchFilter} />
       </label>
-      <div class="note-list">
+      <div class="note-list" bind:this={noteListEl}>
         {#each filterNotes() as note (note.id)}
           <button
             class="note-item"
             class:active={note.id === currentNoteId}
-            onclick={() => selectNote(note.id)}
+            class:dragging={note.id === draggedNoteId}
+            class:drop-before={note.id === dropTargetId && !dropAfter}
+            class:drop-after={note.id === dropTargetId && dropAfter}
+            data-note-id={note.id}
+            onclick={(event) => handleNoteClick(event, note.id)}
+            onpointerdown={(event) => startNotePointerDrag(event, note.id)}
+            title="Drag to reorder"
           >
             <span class="note-title">{note.title || "Untitled"}</span>
-            <span class="note-preview">{note.body.split("\n")[0] || ""}</span>
             <span class="note-date">{formatDate(note.updated_at)}</span>
           </button>
         {/each}
@@ -479,8 +587,14 @@
   }
 
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
+  .pane-btn :global(.app-icon), .control-btn :global(.app-icon) { width: 15px; height: 15px; }
   .pane-btn:disabled { opacity: 0.4; cursor: default; }
   .pane-btn.active { background: var(--accent); color: var(--bg); }
+  .control-group { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; }
+  .control-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: var(--control-height); min-width: var(--control-height); padding: 0 6px; border: 0; border-right: 1px solid var(--border); background: var(--bg2); color: var(--fg2); font: inherit; font-size: 10px; line-height: 1; white-space: nowrap; cursor: pointer; }
+  .control-btn:last-child { border-right: 0; }
+  .control-btn:hover { background: var(--btn-hover); color: var(--fg); }
+  .control-btn.toggled { background: color-mix(in srgb, var(--accent) 22%, var(--bg2)); color: var(--accent); }
 
   .preview {
     flex: 1;
@@ -606,14 +720,33 @@
   .note-item {
     display: block;
     width: 100%;
-    margin-bottom: 3px;
-    padding: 7px 8px;
+    margin-bottom: 2px;
+    padding: 4px 7px;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
     text-align: left;
-    cursor: pointer;
+    cursor: grab;
+    position: relative;
+    user-select: none;
+    touch-action: none;
   }
+
+  .note-item:active { cursor: grabbing; }
+  .note-item.dragging { opacity: 0.45; }
+  .note-item.drop-before::before,
+  .note-item.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    pointer-events: none;
+  }
+  .note-item.drop-before::before { top: -2px; }
+  .note-item.drop-after::after { bottom: -2px; }
 
   .note-item:hover {
     background: var(--btn-hover);
@@ -626,7 +759,6 @@
   }
 
   .note-item.active .note-title,
-  .note-item.active .note-preview,
   .note-item.active .note-date {
     color: var(--bg);
   }
@@ -641,19 +773,9 @@
     white-space: nowrap;
   }
 
-  .note-preview {
-    display: block;
-    margin-top: 2px;
-    font-size: 10px;
-    color: var(--fg2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .note-date {
     display: block;
-    margin-top: 3px;
+    margin-top: 1px;
     font-size: 9px;
     color: var(--fg2);
     opacity: 0.7;
@@ -662,7 +784,7 @@
   @media (max-width: 680px) {
     .editor-header { padding-inline: 4px; gap: 3px; }
     .editor-actions { gap: 1px; }
-    .pane-btn { width: var(--control-height); min-width: var(--control-height); padding: 0; }
+    .pane-btn, .control-btn { width: var(--control-height); min-width: var(--control-height); padding: 0; }
     .btn-label, .auto-label { display: none; }
     .auto-toggle { width: var(--control-height); justify-content: center; }
   }

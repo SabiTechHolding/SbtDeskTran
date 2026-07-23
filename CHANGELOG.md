@@ -1,5 +1,15 @@
 # SbtDeskTool changelog
 
+## v1.26.7.23 - Improvement and Bug Fixes
+
+- Refreshed the app icon for clearer visibility across Windows.
+- Improved controls and layouts for compact and narrow windows.
+- Improved language selection and swapping in Translate Compact mode.
+- Made the Notes list more compact and added drag-and-drop ordering.
+- Made startup and window resizing smoother.
+- Improved update reliability, including on managed company networks.
+- Simplified downloads and improved packages for Windows, macOS and Linux.
+
 ## v1.26.7.21 — Initial release
 
 - Compare and edit text side by side with two diff algorithms, word-level details, whitespace controls and optional copy/revert actions.

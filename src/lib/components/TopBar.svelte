@@ -30,24 +30,20 @@
   let {
     activeTab,
     compact,
-    layout,
     windowEffect,
     onTop,
     onTabSwitch,
     onToggleCompact,
-    onToggleLayout,
     onToggleOnTop,
     onSelectEffect,
     onCheckUpdate,
   }: {
     activeTab: TabId;
     compact: boolean;
-    layout: "horizontal" | "vertical";
     windowEffect: string;
     onTop: boolean;
     onTabSwitch: (tab: TabId) => void;
     onToggleCompact: () => void;
-    onToggleLayout: () => void;
     onToggleOnTop: () => void;
     onSelectEffect: (key: string) => void;
     onCheckUpdate: (onProgress: (message: string) => void) => Promise<void>;
@@ -84,16 +80,6 @@
   <div class="separator"></div>
 
   <div class="actions">
-    {#if activeTab === "tran"}
-      <button
-        class="action-btn"
-        onclick={onToggleLayout}
-        title={layout === "horizontal" ? "Switch to Vertical" : "Switch to Horizontal"}
-      >
-        <AppIcon name="layout" /> <span class="btn-label">{layout === "horizontal" ? "Horizontal" : "Vertical"}</span>
-      </button>
-    {/if}
-
     <!-- svelte-ignore a11y_no_static_element_interactions a11y_interactive_supports_focus -->
     <div class="effect-wrapper" onmouseleave={() => (showEffectMenu = false)}>
       <button

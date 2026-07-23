@@ -12,6 +12,12 @@
 
   let {
     activeTab,
+    layout,
+    wordWraps,
+    showWhitespaces,
+    diffWordDiff,
+    diffIgnoreWhitespace,
+    diffAlgorithm,
     srcLang,
     destLang,
     onTop,
@@ -22,8 +28,21 @@
     onTabSwitch,
     onToggleCompact,
     onToggleOnTop,
+    onToggleLayout,
+    onToggleWrap,
+    onToggleWhitespace,
+    onSwapText,
+    onToggleDiffWord,
+    onToggleDiffIgnoreWhitespace,
+    onSetDiffAlgorithm,
   }: {
     activeTab: TabId;
+    layout: "horizontal" | "vertical";
+    wordWraps: Record<TabId, boolean>;
+    showWhitespaces: Record<TabId, boolean>;
+    diffWordDiff: boolean;
+    diffIgnoreWhitespace: boolean;
+    diffAlgorithm: "legacy" | "advanced";
     srcLang: string;
     destLang: string;
     onTop: boolean;
@@ -34,6 +53,13 @@
     onTabSwitch: (tab: TabId) => void;
     onToggleCompact: () => void;
     onToggleOnTop: () => void;
+    onToggleLayout: () => void;
+    onToggleWrap: (tab: TabId) => void;
+    onToggleWhitespace: (tab: TabId) => void;
+    onSwapText?: () => void;
+    onToggleDiffWord: () => void;
+    onToggleDiffIgnoreWhitespace: () => void;
+    onSetDiffAlgorithm: (algorithm: "legacy" | "advanced") => void;
   } = $props();
 
   let showSrcMenu = $state(false);
@@ -60,7 +86,19 @@
     {/each}
   </nav>
 
-  {#if activeTab === "tran"}
+  {#if activeTab === "diff"}
+    <span class="separator"></span>
+    <div class="control-group" aria-label="Diff display controls">
+      <button class="icon-btn" class:active={diffWordDiff} onclick={onToggleDiffWord} title="Highlight changed words and characters" aria-label="Highlight changed words and characters"><AppIcon name="word" /></button>
+      <button class="icon-btn" class:active={diffIgnoreWhitespace} onclick={onToggleDiffIgnoreWhitespace} title="Ignore whitespace-only changes" aria-label="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" /></button>
+      <button class="icon-btn" class:active={wordWraps.diff} onclick={() => onToggleWrap("diff")} title="Toggle word wrap for Diff" aria-label="Toggle word wrap for Diff"><AppIcon name="wrap" /></button>
+      <button class="icon-btn" class:active={showWhitespaces.diff} onclick={() => onToggleWhitespace("diff")} title="Show or hide whitespace characters" aria-label="Show or hide whitespace characters"><AppIcon name="whitespace" /></button>
+    </div>
+    <div class="control-group" aria-label="Diff algorithm">
+      <button class="icon-btn" class:active={diffAlgorithm === "legacy"} onclick={() => onSetDiffAlgorithm("legacy")} title="Use legacy diff alignment" aria-label="Use legacy diff alignment"><AppIcon name="legacy" /></button>
+      <button class="icon-btn" class:active={diffAlgorithm === "advanced"} onclick={() => onSetDiffAlgorithm("advanced")} title="Use advanced diff alignment" aria-label="Use advanced diff alignment"><AppIcon name="advanced" /></button>
+    </div>
+  {:else if activeTab === "tran"}
     <span class="separator"></span>
     <div class="dropdown-wrapper" onmouseleave={() => (showSrcMenu = false)} role="presentation">
       <button class="dropdown-trigger" onclick={() => (showSrcMenu = !showSrcMenu)} title={`From: ${srcLang}`}>
@@ -97,10 +135,20 @@
         </div>
       {/if}
     </div>
+
+    <div class="control-group" aria-label="Translate language and layout">
+      <button class="icon-btn" onclick={onSwapText} title="Swap From and To languages" aria-label="Swap From and To languages"><AppIcon name="swap" /></button>
+      <button class="icon-btn" class:active={layout === "vertical"} onclick={onToggleLayout} title={layout === "horizontal" ? "Switch to Vertical" : "Switch to Horizontal"} aria-label={layout === "horizontal" ? "Switch to Vertical" : "Switch to Horizontal"}><AppIcon name="layout" /></button>
+    </div>
+    <span class="separator"></span>
+    <div class="control-group" aria-label="Translate display controls">
+      <button class="icon-btn" class:active={wordWraps.tran} onclick={() => onToggleWrap("tran")} title="Toggle word wrap for Translate" aria-label="Toggle word wrap for Translate"><AppIcon name="wrap" /></button>
+      <button class="icon-btn" class:active={showWhitespaces.tran} onclick={() => onToggleWhitespace("tran")} title="Show or hide whitespace characters" aria-label="Show or hide whitespace characters"><AppIcon name="whitespace" /></button>
+    </div>
   {:else if activeTab === "note"}
     <span class="separator"></span>
     <label class="note-select-wrap" title="Select note">
-      <AppIcon name="notes" size={12} />
+      <AppIcon name="notes" size={14} />
       <select
         class="note-select"
         aria-label="Select note"
@@ -116,13 +164,19 @@
         {/each}
       </select>
     </label>
+
+    <span class="separator"></span>
+    <div class="control-group" aria-label="Notes display controls">
+      <button class="icon-btn" class:active={wordWraps.note} onclick={() => onToggleWrap("note")} title="Toggle word wrap for Notes" aria-label="Toggle word wrap for Notes"><AppIcon name="wrap" /></button>
+      <button class="icon-btn" class:active={showWhitespaces.note} onclick={() => onToggleWhitespace("note")} title="Show or hide whitespace characters" aria-label="Show or hide whitespace characters"><AppIcon name="whitespace" /></button>
+    </div>
   {/if}
 
   <div class="spacer"></div>
   <button class="icon-btn" class:active={onTop} onclick={onToggleOnTop} title="Always on top" aria-label="Always on top">
     <AppIcon name="pin" />
   </button>
-  <button class="full-btn" onclick={onToggleCompact} title="Exit compact mode" aria-label="Exit compact mode"><AppIcon name="expand" size={12} /><span class="btn-label">Full</span></button>
+  <button class="full-btn" onclick={onToggleCompact} title="Exit compact mode" aria-label="Exit compact mode"><AppIcon name="expand" /></button>
 </div>
 
 <style>
@@ -130,6 +184,9 @@
     display: flex;
     align-items: center;
     min-width: 0;
+    overflow: visible;
+    position: relative;
+    z-index: 200;
     height: 26px;
     padding: 0 3px;
     background: var(--bg2);
@@ -155,9 +212,13 @@
     line-height: 1;
   }
   .icon-btn { display: grid; place-items: center; width: 24px; padding: 0; }
-  .full-btn { padding: 0 6px; }
+  .full-btn { width: 24px; padding: 0; }
   .icon-btn:hover, .full-btn:hover { background: var(--btn-hover); color: var(--fg); }
+  .icon-btn:disabled { opacity: 0.35; cursor: default; }
   .icon-btn.active { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+  .control-group { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; flex: 0 0 auto; }
+  .control-group .icon-btn { width: 23px; border-right: 1px solid var(--border); border-radius: 0; }
+  .control-group .icon-btn:last-child { border-right: 0; }
   .tab-btn.active { box-shadow: inset 0 -2px var(--accent); }
   .separator { width: 1px; height: 16px; margin: 0 2px; background: var(--border); }
   .dropdown-wrapper { position: relative; min-width: 0; }
@@ -190,6 +251,7 @@
     background: var(--bg3);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
+  .right-menu { right: 0; left: auto; }
   .dropdown-filter {
     width: 100%;
     padding: 4px 6px;
@@ -232,7 +294,6 @@
 
   @media (max-width: 420px) {
     .dropdown-trigger { max-width: 74px; }
-    .full-btn { width: 24px; padding: 0; }
-    .full-btn .btn-label { display: none; }
+    .control-group .icon-btn { width: 22px; }
   }
 </style>

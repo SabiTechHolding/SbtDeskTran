@@ -47,7 +47,7 @@
 <div class="statusbar">
   <span class="status" style="color: {STATUS_COLORS[statusKind]}">
     {statusText}
-    {#if panelName}
+    {#if activeTab !== "note" && panelName}
       <span class="panel-name">| {panelName}</span>
     {/if}
   </span>
@@ -64,7 +64,7 @@
     {#if selLength > 0}
       <span class="metric">| Sel {selLength}</span>
     {/if}
-    {#if speed}
+    {#if activeTab === "tran" && speed}
       <span class="metric">| {speed}</span>
     {/if}
     <span class="metric">{TAB_NAMES[activeTab] ?? activeTab}</span>

@@ -157,3 +157,13 @@ export function mapLang(name: string): string {
 export function langNameFromCode(code: string): string {
   return LANG_CODE_TO_NAME[code] ?? code;
 }
+
+export function swapLanguages(
+  source: string,
+  destination: string,
+  detectedSource = "",
+): { source: string; destination: string } | null {
+  const resolvedSource = source === "Auto Detect" ? detectedSource : source;
+  if (!resolvedSource || resolvedSource === "Auto Detect") return null;
+  return { source: destination, destination: resolvedSource };
+}

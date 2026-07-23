@@ -8,7 +8,7 @@ mod models;
 use commands::{
     diff::compute_diff,
     network::{get_network_strategy, record_update_error},
-    notes::{delete_note, flush_notes, list_notes, save_note},
+    notes::{delete_note, flush_notes, list_notes, reorder_notes, save_note},
     settings::{get_settings, save_setting, save_settings_flush, SettingsState},
     translate::{translate, translate_units},
     updater::{check_for_update, download_and_install_update},
@@ -60,6 +60,8 @@ fn default_settings() -> serde_json::Map<String, Value> {
     map.insert("diff_word_diff".into(), Value::Bool(true));
     map.insert("diff_ignore_whitespace".into(), Value::Bool(false));
     map.insert("diff_show_whitespace".into(), Value::Bool(false));
+    map.insert("tran_show_whitespace".into(), Value::Bool(false));
+    map.insert("note_show_whitespace".into(), Value::Bool(false));
     map.insert("diff_algorithm".into(), Value::String("legacy".into()));
     map.insert("note_auto_save".into(), Value::Bool(true));
     map.insert("word_wrap".into(), Value::Bool(true));
@@ -255,6 +257,7 @@ pub fn run() {
             list_notes,
             save_note,
             delete_note,
+            reorder_notes,
             flush_notes,
             set_window_effect,
             set_always_on_top,

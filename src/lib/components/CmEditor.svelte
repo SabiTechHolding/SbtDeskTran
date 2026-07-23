@@ -18,6 +18,7 @@
     fontSize = 11,
     readonly = false,
     wordWrap = false,
+    showWhitespace = false,
     textColor = "var(--fg)",
     showLineNumbers = false,
     language = "plaintext",
@@ -32,6 +33,7 @@
     fontSize?: number;
     readonly?: boolean;
     wordWrap?: boolean;
+    showWhitespace?: boolean;
     textColor?: string;
     showLineNumbers?: boolean;
     language?: string;
@@ -185,6 +187,7 @@
       readOnly: readonly,
       domReadOnly: readonly,
       wordWrap: wordWrap ? "on" : "off",
+      renderWhitespace: showWhitespace ? "all" : "none",
       lineNumbers: showLineNumbers ? "on" : "off",
       lineNumbersMinChars: 3,
       glyphMargin: false,
@@ -262,6 +265,7 @@
       readOnly: readonly,
       domReadOnly: readonly,
       wordWrap: wordWrap ? "on" : "off",
+      renderWhitespace: showWhitespace ? "all" : "none",
       lineNumbers: showLineNumbers ? "on" : "off",
       renderLineHighlight: showLineNumbers ? "all" : "none",
       fontSize,

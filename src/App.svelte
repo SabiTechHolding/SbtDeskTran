@@ -18,6 +18,7 @@
   import { loadSettings, saveSetting, type AppSettings } from "./lib/stores/settings";
   import { checkForUpdates, type DialogRequest } from "./lib/utils/updater";
   import { formatAppVersion } from "./lib/utils/version";
+  import { swapLanguages } from "./lib/utils/languages";
 
   type TabId = "tran" | "diff" | "note";
   type StatusKind = "normal" | "success" | "warning" | "error";
@@ -73,7 +74,7 @@
   let sashPosTran = $state(50);
   let diffWordDiff = $state(true);
   let diffIgnoreWhitespace = $state(false);
-  let diffShowWhitespace = $state(false);
+  let showWhitespaces = $state<Record<TabId, boolean>>({ tran: false, diff: false, note: false });
   let diffAlgorithm = $state<"legacy" | "advanced">("legacy");
   let noteAutoSave = $state(true);
   let diffLeftRatio = $state(0.5);
@@ -167,7 +168,11 @@
     sashPosTran = s.sash_pos_tran ?? 50;
     diffWordDiff = s.diff_word_diff;
     diffIgnoreWhitespace = s.diff_ignore_whitespace;
-    diffShowWhitespace = s.diff_show_whitespace;
+    showWhitespaces = {
+      tran: s.tran_show_whitespace,
+      diff: s.diff_show_whitespace,
+      note: s.note_show_whitespace,
+    };
     diffAlgorithm = s.diff_algorithm === "advanced" ? "advanced" : "legacy";
     noteAutoSave = s.note_auto_save;
     diffLeftRatio = s.diff_left_ratio;
@@ -312,6 +317,16 @@
     debouncedSaveSetting(key, wordWraps[tab]);
   }
 
+  function handleToggleWhitespace(tab: TabId) {
+    if (tab === "diff") {
+      diffTab?.toggleWhitespaceControl();
+      return;
+    }
+    showWhitespaces[tab] = !showWhitespaces[tab];
+    const key = tab === "tran" ? "tran_show_whitespace" : "note_show_whitespace";
+    debouncedSaveSetting(key, showWhitespaces[tab]);
+  }
+
   function handleToggleOnTop() {
     onTop = !onTop;
     invoke("set_always_on_top", { onTop });
@@ -332,15 +347,15 @@
   }
 
   function handleSwapLanguageState() {
-    const temp = srcLang;
-    srcLang = destLang;
-    destLang = temp;
+    const swapped = swapLanguages(srcLang, destLang, translateTab?.getDetectedLanguage());
+    if (!swapped) {
+      setTabStatus("tran", "Enter text and wait for language detection before swapping", "warning");
+      return;
+    }
+    srcLang = swapped.source;
+    destLang = swapped.destination;
     debouncedSaveSetting("src_lang", srcLang);
     debouncedSaveSetting("dest_lang", destLang);
-  }
-
-  function handleSwapFromLanguageBar() {
-    translateTab?.swapTranslation();
   }
 
   // ── Cursor tracking from editors ──────────────────────────
@@ -438,26 +453,35 @@
     <TopBar
       {activeTab}
       {compact}
-      {layout}
       {windowEffect}
       {onTop}
       onTabSwitch={handleTabSwitch}
       onToggleCompact={handleToggleCompact}
-      onToggleLayout={handleToggleLayout}
       onToggleOnTop={handleToggleOnTop}
       onSelectEffect={handleSelectEffect}
       onCheckUpdate={(onProgress) => handleCheckUpdate(onProgress, true)}
     />
     {#if activeTab === "tran"}
       <LangBar
-        {engine} {srcLang} {destLang}
+        {engine} {srcLang} {destLang} {layout}
+        wordWrap={wordWraps.tran}
+        showWhitespace={showWhitespaces.tran}
         onSetLang={handleSetLang}
-        onSwapText={handleSwapFromLanguageBar}
+        onSwapText={handleSwapLanguageState}
+        onToggleLayout={handleToggleLayout}
+        onToggleWrap={() => handleToggleWrap("tran")}
+        onToggleWhitespace={() => handleToggleWhitespace("tran")}
       />
     {/if}
   {:else}
     <CompactBar
       {activeTab}
+      {layout}
+      {wordWraps}
+      {showWhitespaces}
+      {diffWordDiff}
+      {diffIgnoreWhitespace}
+      {diffAlgorithm}
       {srcLang} {destLang}
       {onTop}
       notes={compactNotes}
@@ -467,6 +491,13 @@
       onSelectNote={(id) => notesTab?.selectNoteById(id)}
       onToggleCompact={handleToggleCompact}
       onToggleOnTop={handleToggleOnTop}
+      onToggleLayout={handleToggleLayout}
+      onToggleWrap={handleToggleWrap}
+      onToggleWhitespace={handleToggleWhitespace}
+      onSwapText={handleSwapLanguageState}
+      onToggleDiffWord={() => diffTab?.toggleWordControl()}
+      onToggleDiffIgnoreWhitespace={() => diffTab?.toggleIgnoreWhitespaceControl()}
+      onSetDiffAlgorithm={(algorithm) => diffTab?.setAlgorithmControl(algorithm)}
     />
   {/if}
 
@@ -485,11 +516,17 @@
         fontSize={fontSizes.diff}
         wordDiff={diffWordDiff}
         ignoreWhitespace={diffIgnoreWhitespace}
-        showWhitespace={diffShowWhitespace}
+        showWhitespace={showWhitespaces.diff}
         initialAlgorithm={diffAlgorithm}
         initialSashRatio={diffLeftRatio}
         onZoom={(d) => handleZoom("diff", d)}
         onToggleWrap={() => handleToggleWrap("diff")}
+        onControlStateChange={(state) => {
+          diffWordDiff = state.wordDiff;
+          diffIgnoreWhitespace = state.ignoreWhitespace;
+          showWhitespaces.diff = state.showWhitespace;
+          diffAlgorithm = state.algorithm;
+        }}
         onCursorChange={handleDiffCursor}
         onStatusUpdate={(text, kind) => setTabStatus("diff", text, kind)}
         onStatsUpdate={(stats) => { diffStats = stats; }}
@@ -501,12 +538,11 @@
         {layout}
         {compact}
         wordWrap={wordWraps.tran}
+        showWhitespace={showWhitespaces.tran}
         {srcLang} {destLang}
         fontSize={fontSizes.tran}
         sashPos={sashPosTran}
         onZoom={(d) => handleZoom("tran", d)}
-        onToggleWrap={() => handleToggleWrap("tran")}
-        onSwapText={handleSwapLanguageState}
         onCursorChange={handleTranCursor}
         onStatusUpdate={(text, kind, time, chars) => {
           setTabStatus("tran", text, kind);
@@ -520,11 +556,13 @@
         bind:this={notesTab}
         {compact}
         wordWrap={wordWraps.note}
+        showWhitespace={showWhitespaces.note}
         fontSize={fontSizes.note}
         autoSave={noteAutoSave}
         initialSidebarWidth={noteSidebarWidth}
         onZoom={(d) => handleZoom("note", d)}
         onToggleWrap={() => handleToggleWrap("note")}
+        onToggleWhitespace={() => handleToggleWhitespace("note")}
         onCursorChange={handleNoteCursor}
         onStatusUpdate={(text, kind) => setTabStatus("note", text, kind)}
         onNotesChange={(notes, selectedId) => {

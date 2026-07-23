@@ -10,17 +10,16 @@
   import { onMount, onDestroy } from "svelte";
 
   let {
-    layout, compact, wordWrap, fontSize, srcLang, destLang, onZoom, onToggleWrap, onSwapText, onCursorChange, onStatusUpdate, sashPos: initialSash = 50,
+    layout, compact, wordWrap, showWhitespace, fontSize, srcLang, destLang, onZoom, onCursorChange, onStatusUpdate, sashPos: initialSash = 50,
   }: {
     layout: "horizontal" | "vertical";
     compact: boolean;
     wordWrap: boolean;
+    showWhitespace: boolean;
     fontSize: number;
     srcLang: string;
     destLang: string;
     onZoom: (delta: number) => void;
-    onToggleWrap: () => void;
-    onSwapText?: () => void;
     onCursorChange?: (side: string, line: number, col: number, selLen: number, chars: number) => void;
     onStatusUpdate?: (text: string, kind: string, transTime: number, transChars: number) => void;
     sashPos?: number;
@@ -301,18 +300,8 @@
     onStatusUpdate?.("Copied", "success", 0, 0);
   }
 
-  export function swapTranslation() {
-    if (srcLang === "Auto Detect") {
-      onStatusUpdate?.("Cannot swap when source is Auto Detect", "warning", 0, 0);
-      return;
-    }
-    const tempSrc = sourceText;
-    sourceText = translatedText;
-    translatedText = tempSrc;
-    tranUnits = [];
-    prevSignature = "";
-    onSwapText?.();
-    queueMicrotask(doTranslate);
+  export function getDetectedLanguage() {
+    return detectedLang;
   }
 
   let ctxMenu = $state<{ items: ContextItem[]; x: number; y: number } | null>(null);
@@ -407,10 +396,9 @@
         <span class="pane-title">Source</span>
         <div class="pane-actions">
           {#if isTranslating}<span class="translation-state">Translating...</span>{/if}
-          <button class="pane-btn" onclick={clearSrc} title="Clear Source" aria-label="Clear Source"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
-          <button class="pane-btn" onclick={() => copyText(sourceText)} title="Copy Source" aria-label="Copy Source"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
-          <button class="pane-btn" class:toggled={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Translate"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
-          <button class="pane-btn" class:toggled={sourceFindOpen} onclick={() => void toggleEditorFind("source")} title="Show or hide Source editor search"><AppIcon name="search-left" size={12} /><span class="btn-label">S</span></button>
+          <button class="pane-btn" onclick={clearSrc} title="Clear Source" aria-label="Clear Source"><AppIcon name="clear" size={14} /><span class="btn-label">Clear</span></button>
+          <button class="pane-btn" onclick={() => copyText(sourceText)} title="Copy Source" aria-label="Copy Source"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
+          <button class="pane-btn" class:toggled={sourceFindOpen} onclick={() => void toggleEditorFind("source")} title="Show or hide Source editor search"><AppIcon name="search-left" size={14} /><span class="btn-label">S</span></button>
         </div>
       </div>
       {/if}
@@ -419,6 +407,7 @@
         value={sourceText}
         {fontSize}
         {wordWrap}
+        {showWhitespace}
         onChange={onSourceChange}
         onKeyDown={handleSourceKeyDown}
         onContextMenu={(e) => showContextMenu(e, true)}
@@ -447,9 +436,8 @@
           {/if}
         </span>
         <div class="pane-actions">
-          <button class="pane-btn" onclick={swapTranslation} title="Swap Source/Translated"><AppIcon name="swap" size={12} /><span class="btn-label">Swap</span></button>
-          <button class="pane-btn" onclick={() => copyText(translatedText)} title="Copy Translated" aria-label="Copy Translated"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
-          <button class="pane-btn" class:toggled={translatedFindOpen} onclick={() => void toggleEditorFind("translated")} title="Show or hide Translated editor search"><AppIcon name="search-right" size={12} /><span class="btn-label">T</span></button>
+          <button class="pane-btn" onclick={() => copyText(translatedText)} title="Copy Translated" aria-label="Copy Translated"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
+          <button class="pane-btn" class:toggled={translatedFindOpen} onclick={() => void toggleEditorFind("translated")} title="Show or hide Translated editor search"><AppIcon name="search-right" size={14} /><span class="btn-label">T</span></button>
         </div>
       </div>
       {/if}
@@ -458,6 +446,7 @@
         value={translatedText}
         {fontSize}
         {wordWrap}
+        {showWhitespace}
         textColor="var(--accent2)"
         readonly={true}
         onKeyDown={handleSourceKeyDown}
@@ -497,6 +486,7 @@
   .pane-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
   .pane-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); padding: 0 var(--control-padding-x); background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; border-radius: var(--control-radius); }
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
+  .pane-btn :global(.app-icon) { width: 15px; height: 15px; }
   .pane-btn:disabled { opacity: 0.5; cursor: default; }
   .pane-btn.toggled { background: var(--accent); color: var(--bg); }
   .translation-state { color: var(--warning); font-size: 10px; white-space: nowrap; }

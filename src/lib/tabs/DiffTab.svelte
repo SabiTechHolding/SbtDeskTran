@@ -22,7 +22,7 @@
   }
 
   let {
-    compact, wordWrap, theme, fontSize, wordDiff: initialWordDiff, ignoreWhitespace: initialIgnoreWhitespace, showWhitespace: initialShowWhitespace, initialAlgorithm, initialSashRatio, onZoom, onToggleWrap, onCursorChange, onStatusUpdate, onStatsUpdate,
+    compact, wordWrap, theme, fontSize, wordDiff: initialWordDiff, ignoreWhitespace: initialIgnoreWhitespace, showWhitespace: initialShowWhitespace, initialAlgorithm, initialSashRatio, onZoom, onToggleWrap, onControlStateChange, onCursorChange, onStatusUpdate, onStatsUpdate,
   }: {
     compact: boolean;
     wordWrap: boolean;
@@ -35,6 +35,7 @@
     initialSashRatio: number;
     onZoom: (delta: number) => void;
     onToggleWrap: () => void;
+    onControlStateChange?: (state: { wordDiff: boolean; ignoreWhitespace: boolean; showWhitespace: boolean; algorithm: "legacy" | "advanced" }) => void;
     onCursorChange?: (side: string, line: number, col: number, selLen: number, chars: number) => void;
     onStatusUpdate?: (text: string, kind: string) => void;
     onStatsUpdate?: (stats: { added: number; removed: number; changed_blocks: number }) => void;
@@ -176,6 +177,7 @@
     if (diffAlgorithm === algorithm) return;
     diffAlgorithm = algorithm;
     void saveSetting("diff_algorithm", diffAlgorithm);
+    onControlStateChange?.({ wordDiff, ignoreWhitespace, showWhitespace, algorithm: diffAlgorithm });
     detailLeft = "";
     detailRight = "";
     detailLeftTokens = [];
@@ -211,19 +213,27 @@
   function toggleWordDiff() {
     wordDiff = !wordDiff;
     void saveSetting("diff_word_diff", wordDiff);
+    onControlStateChange?.({ wordDiff, ignoreWhitespace, showWhitespace, algorithm: diffAlgorithm });
     void runDiff();
   }
 
   function toggleIgnoreWhitespace() {
     ignoreWhitespace = !ignoreWhitespace;
     void saveSetting("diff_ignore_whitespace", ignoreWhitespace);
+    onControlStateChange?.({ wordDiff, ignoreWhitespace, showWhitespace, algorithm: diffAlgorithm });
     void runDiff();
   }
 
   function toggleShowWhitespace() {
     showWhitespace = !showWhitespace;
     void saveSetting("diff_show_whitespace", showWhitespace);
+    onControlStateChange?.({ wordDiff, ignoreWhitespace, showWhitespace, algorithm: diffAlgorithm });
   }
+
+  export function toggleWordControl() { toggleWordDiff(); }
+  export function toggleIgnoreWhitespaceControl() { toggleIgnoreWhitespace(); }
+  export function toggleWhitespaceControl() { toggleShowWhitespace(); }
+  export function setAlgorithmControl(algorithm: "legacy" | "advanced") { void setAlgorithm(algorithm); }
 
   function toggleCommonFind() {
     findOpen = !findOpen;
@@ -284,38 +294,38 @@
   <div class="diff-header">
     <div class="pane-header left-header">
       <span class="pane-title">◀ Left</span>
-      <button class="pane-btn" onclick={clearLeft} title="Clear Left" aria-label="Clear Left"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
-      <button class="pane-btn" onclick={() => copyText(leftText)} title="Copy Left" aria-label="Copy Left"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
+      <button class="pane-btn" onclick={clearLeft} title="Clear Left" aria-label="Clear Left"><AppIcon name="clear" size={14} /><span class="btn-label">Clear</span></button>
+      <button class="pane-btn" onclick={() => copyText(leftText)} title="Copy Left" aria-label="Copy Left"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
     </div>
       <div class="diff-actions">
         <div class="control-group diff-view-group" aria-label="Diff text display">
-          <button class="icon-btn" class:toggled={wordDiff} aria-pressed={wordDiff} onclick={toggleWordDiff} title="Highlight changed words and characters"><AppIcon name="word" size={12} /><span class="btn-label">Word</span></button>
-          <button class="icon-btn" class:toggled={ignoreWhitespace} aria-pressed={ignoreWhitespace} onclick={toggleIgnoreWhitespace} title="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" size={12} /><span class="btn-label">Ignore WS</span></button>
-          <button class="icon-btn" class:toggled={wordWrap} aria-pressed={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Diff"><AppIcon name="wrap" size={12} /><span class="btn-label">Wrap</span></button>
-          <button class="icon-btn" class:toggled={showWhitespace} aria-pressed={showWhitespace} onclick={toggleShowWhitespace} title="Show or hide whitespace characters"><AppIcon name="whitespace" size={12} /><span class="btn-label">Show WS</span></button>
+          <button class="icon-btn" class:toggled={wordDiff} aria-pressed={wordDiff} onclick={toggleWordDiff} title="Highlight changed words and characters"><AppIcon name="word" size={14} /><span class="btn-label">Word</span></button>
+          <button class="icon-btn" class:toggled={ignoreWhitespace} aria-pressed={ignoreWhitespace} onclick={toggleIgnoreWhitespace} title="Ignore whitespace-only changes"><AppIcon name="ignore-whitespace" size={14} /><span class="btn-label">Ignore WS</span></button>
+          <button class="icon-btn" class:toggled={wordWrap} aria-pressed={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Diff"><AppIcon name="wrap" size={14} /><span class="btn-label">Wrap</span></button>
+          <button class="icon-btn" class:toggled={showWhitespace} aria-pressed={showWhitespace} onclick={toggleShowWhitespace} title="Show or hide whitespace characters"><AppIcon name="whitespace" size={14} /><span class="btn-label">Show WS</span></button>
         </div>
         <div class="control-group" aria-label="Diff algorithm">
-          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "legacy"} onclick={() => void setAlgorithm("legacy")} title="Use legacy diff alignment"><AppIcon name="legacy" size={12} /><span class="btn-label">Legacy</span></button>
-          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "advanced"} onclick={() => void setAlgorithm("advanced")} title="Use advanced diff alignment"><AppIcon name="advanced" size={12} /><span class="btn-label">Advanced</span></button>
+          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "legacy"} onclick={() => void setAlgorithm("legacy")} title="Use legacy diff alignment"><AppIcon name="legacy" size={14} /><span class="btn-label">Legacy</span></button>
+          <button class="icon-btn algorithm-btn" class:toggled={diffAlgorithm === "advanced"} onclick={() => void setAlgorithm("advanced")} title="Use advanced diff alignment"><AppIcon name="advanced" size={14} /><span class="btn-label">Advanced</span></button>
         </div>
         <div class="control-group" aria-label="Layout visibility">
           <button class="icon-btn layout-btn" class:toggled={showDetail} onclick={toggleDetail} title="Show or hide focused-line details">
-            <AppIcon name="detail" size={12} /><span class="btn-label">Detail</span>
+            <AppIcon name="detail" size={14} /><span class="btn-label">Detail</span>
           </button>
           <button class="icon-btn layout-btn" class:toggled={showCenterControls} onclick={() => void handleActionGutterChange()} title="Show or hide copy/revert action gutter between editors">
-            <AppIcon name="actions" size={12} /><span class="btn-label">Actions</span>
+            <AppIcon name="actions" size={14} /><span class="btn-label">Actions</span>
           </button>
         </div>
         <div class="control-group" aria-label="Search controls">
-          <button class="icon-btn" class:toggled={findOpen} onclick={toggleCommonFind} title="Show or hide common search"><AppIcon name="search" size={12} /><span class="btn-label">All</span></button>
-          <button class="icon-btn" class:toggled={leftFindOpen} onclick={() => void toggleSideFind("left")} title="Show or hide Left editor search"><AppIcon name="search-left" size={12} /><span class="btn-label">L</span></button>
-          <button class="icon-btn" class:toggled={rightFindOpen} onclick={() => void toggleSideFind("right")} title="Show or hide Right editor search"><AppIcon name="search-right" size={12} /><span class="btn-label">R</span></button>
+          <button class="icon-btn" class:toggled={findOpen} onclick={toggleCommonFind} title="Show or hide common search"><AppIcon name="search" size={14} /><span class="btn-label">All</span></button>
+          <button class="icon-btn" class:toggled={leftFindOpen} onclick={() => void toggleSideFind("left")} title="Show or hide Left editor search"><AppIcon name="search-left" size={14} /><span class="btn-label">L</span></button>
+          <button class="icon-btn" class:toggled={rightFindOpen} onclick={() => void toggleSideFind("right")} title="Show or hide Right editor search"><AppIcon name="search-right" size={14} /><span class="btn-label">R</span></button>
         </div>
       </div>
     <div class="pane-header right-header">
       <span class="pane-title">▶ Right</span>
-      <button class="pane-btn" onclick={clearRight} title="Clear Right" aria-label="Clear Right"><AppIcon name="clear" size={12} /><span class="btn-label">Clear</span></button>
-      <button class="pane-btn" onclick={() => copyText(rightText)} title="Copy Right" aria-label="Copy Right"><AppIcon name="copy" size={12} /><span class="btn-label">Copy</span></button>
+      <button class="pane-btn" onclick={clearRight} title="Clear Right" aria-label="Clear Right"><AppIcon name="clear" size={14} /><span class="btn-label">Clear</span></button>
+      <button class="pane-btn" onclick={() => copyText(rightText)} title="Copy Right" aria-label="Copy Right"><AppIcon name="copy" size={14} /><span class="btn-label">Copy</span></button>
     </div>
   </div>
   {/if}
@@ -398,6 +408,7 @@
   .diff-actions { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
   .pane-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); padding: 0 var(--control-padding-x); background: transparent; border: none; color: var(--fg2); font-family: inherit; font-size: 11px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; border-radius: var(--control-radius); }
   .pane-btn:hover { background: var(--btn-hover); color: var(--fg); }
+  .pane-btn :global(.app-icon), .icon-btn :global(.app-icon) { width: 15px; height: 15px; }
   .control-group { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
   .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; height: var(--control-height); min-width: var(--control-height); padding: 0 5px; border: 0; border-right: 1px solid var(--border); background: var(--bg2); color: var(--fg2); font: inherit; font-size: 10px; line-height: 1; white-space: nowrap; flex: 0 0 auto; cursor: pointer; }
   .icon-btn:last-child { border-right: 0; }

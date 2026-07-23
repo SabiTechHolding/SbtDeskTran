@@ -1,4 +1,5 @@
 use crate::models::notes::Note;
+use std::collections::HashMap;
 use std::path::Path;
 
 fn parse_notes(content: &str) -> Result<(Vec<Note>, bool), String> {
@@ -73,6 +74,21 @@ fn write_notes(path: &Path, notes: &[Note]) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
+fn reorder_notes_by_ids(notes: Vec<Note>, ids: &[i64]) -> Vec<Note> {
+    let original_order: Vec<i64> = notes.iter().map(|note| note.id).collect();
+    let mut notes_by_id: HashMap<i64, Note> =
+        notes.into_iter().map(|note| (note.id, note)).collect();
+    let mut reordered = Vec::with_capacity(notes_by_id.len());
+
+    for id in ids.iter().chain(original_order.iter()) {
+        if let Some(note) = notes_by_id.remove(id) {
+            reordered.push(note);
+        }
+    }
+
+    reordered
+}
+
 #[tauri::command]
 pub fn list_notes() -> Result<Vec<Note>, String> {
     read_notes(&crate::get_data_dir().join("notes.json"))
@@ -105,6 +121,14 @@ pub fn delete_note(id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn reorder_notes(ids: Vec<i64>) -> Result<(), String> {
+    let path = crate::get_data_dir().join("notes.json");
+    let notes = read_notes(&path)?;
+    let notes = reorder_notes_by_ids(notes, &ids);
+    write_notes(&path, &notes)
+}
+
+#[tauri::command]
 pub async fn flush_notes() -> Result<(), String> {
     Ok(())
 }
@@ -124,5 +148,20 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title, "Legacy");
         assert!(notes[0].id > 0);
+    }
+
+    #[test]
+    fn reorders_notes_and_preserves_unspecified_entries() {
+        let note = |id| Note {
+            id,
+            title: format!("Note {id}"),
+            body: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let reordered = reorder_notes_by_ids(vec![note(1), note(2), note(3)], &[3, 1]);
+        let ids: Vec<i64> = reordered.into_iter().map(|entry| entry.id).collect();
+
+        assert_eq!(ids, vec![3, 1, 2]);
     }
 }

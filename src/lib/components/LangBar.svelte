@@ -1,14 +1,22 @@
 <script lang="ts">
   import { LANGUAGES } from "../utils/languages";
+  import AppIcon from "./AppIcon.svelte";
 
   let {
-    engine, srcLang, destLang, onSetLang, onSwapText,
+    engine, srcLang, destLang, layout, wordWrap, showWhitespace,
+    onSetLang, onSwapText, onToggleLayout, onToggleWrap, onToggleWhitespace,
   }: {
     engine: string;
     srcLang: string;
     destLang: string;
+    layout: "horizontal" | "vertical";
+    wordWrap: boolean;
+    showWhitespace: boolean;
     onSetLang: (field: "src_lang" | "dest_lang" | "engine", val: string) => void;
     onSwapText?: () => void;
+    onToggleLayout: () => void;
+    onToggleWrap: () => void;
+    onToggleWhitespace: () => void;
   } = $props();
 
   const ENGINES = ["Google Translate"];
@@ -111,8 +119,6 @@
     </div>
   </div>
 
-  <button class="swap-btn" onclick={swapLangs} title="Swap languages">⇄</button>
-
   <div class="lang-group">
     <span class="label">To</span>
     <!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -139,6 +145,25 @@
         </div>
       {/if}
     </div>
+  </div>
+
+  <div class="control-group" aria-label="Translate language and layout">
+    <button class="control-btn" onclick={swapLangs} title="Swap From and To languages">
+      <AppIcon name="swap" size={14} /><span class="btn-label">Swap</span>
+    </button>
+    <button class="control-btn" class:toggled={layout === "vertical"} onclick={onToggleLayout} title={layout === "horizontal" ? "Switch to Vertical" : "Switch to Horizontal"}>
+      <AppIcon name="layout" size={14} /><span class="btn-label">{layout === "horizontal" ? "Horizontal" : "Vertical"}</span>
+    </button>
+  </div>
+
+  <span class="bar-spacer"></span>
+  <div class="control-group" aria-label="Translate editor display">
+    <button class="control-btn" class:toggled={wordWrap} onclick={onToggleWrap} title="Toggle word wrap for Translate">
+      <AppIcon name="wrap" size={14} /><span class="btn-label">Wrap</span>
+    </button>
+    <button class="control-btn" class:toggled={showWhitespace} onclick={onToggleWhitespace} title="Show or hide whitespace characters">
+      <AppIcon name="whitespace" size={14} /><span class="btn-label">Show WS</span>
+    </button>
   </div>
 </div>
 
@@ -242,22 +267,18 @@
     background: var(--bg2);
   }
 
-  .swap-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    background: transparent;
-    border: none;
-    color: var(--accent);
-    font-size: 16px;
-    cursor: pointer;
-    border-radius: 3px;
-  }
+  .bar-spacer { flex: 1; min-width: 2px; }
+  .control-group { display: inline-flex; align-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; flex: 0 0 auto; }
+  .control-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: var(--control-height); min-width: var(--control-height); padding: 0 6px; border: 0; border-right: 1px solid var(--border); background: var(--bg2); color: var(--fg2); font: inherit; font-size: 10px; line-height: 1; white-space: nowrap; cursor: pointer; }
+  .control-btn:last-child { border-right: 0; }
+  .control-btn:hover:not(:disabled) { background: var(--btn-hover); color: var(--fg); }
+  .control-btn :global(.app-icon) { width: 15px; height: 15px; }
+  .control-btn.toggled { background: color-mix(in srgb, var(--accent) 22%, var(--bg2)); color: var(--accent); }
+  .control-btn:disabled { opacity: .45; cursor: default; }
 
-  .swap-btn:hover {
-    background: var(--btn-hover);
+  @media (max-width: 980px) {
+    .control-btn { width: var(--control-height); padding: 0; }
+    .control-btn .btn-label { display: none; }
   }
 
   @media (max-width: 680px) {
@@ -266,6 +287,6 @@
     .lang-group, .dropdown-wrapper { min-width: 0; }
     .lang-group { flex: 1 1 0; }
     .dropdown-trigger { width: 100%; max-width: none; padding-inline: 5px; }
-    .swap-btn { flex: 0 0 24px; }
+    .bar-spacer { display: none; }
   }
 </style>
